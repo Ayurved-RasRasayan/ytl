@@ -932,8 +932,27 @@ start_server() {
         return 1
     }
 
-    # Start server in background
-    node "$SERVER_JS" > /tmp/youtube-downloader-server.log 2>&1 &
+    # ⭐ FIXED: Set default download directory based on OS
+    if [[ "$OSTYPE" == "msys" || "$OSTYPE" == "cygwin" ]] || [[ -n "$WINDIR" || -n "windir" ]]; then
+        # Windows (Git Bash/Cygwin/MSYS)
+        export DOWNLOADS_DIR="C:\\Users\\Jackle\\Downloads"
+        log "Windows detected: Setting DOWNLOADS_DIR=$DOWNLOADS_DIR"
+    elif [[ "$OSTYPE" == "darwin"* ]]; then
+        # macOS
+        export DOWNLOADS_DIR="$HOME/Downloads"
+        log "macOS detected: Setting DOWNLOADS_DIR=$DOWNLOADS_DIR"
+    else
+        # Linux/Unix
+        if [ -d "$HOME/Downloads" ]; then
+            export DOWNLOADS_DIR="$HOME/Downloads"
+        else
+            export DOWNLOADS_DIR="$SCRIPT_DIR/server/downloads"
+        fi
+        log "Linux detected: Setting DOWNLOADS_DIR=$DOWNLOADS_DIR"
+    fi
+
+    # Start server in background with DOWNLOADS_DIR environment variable
+    DOWNLOADS_DIR="$DOWNLOADS_DIR" node "$SERVER_JS" > /tmp/youtube-downloader-server.log 2>&1 &
     SERVER_PID=$!
     
     sleep 3

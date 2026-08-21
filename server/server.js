@@ -312,7 +312,39 @@ function executeWithRetry(strategies, currentIndex, onSuccess, onError) {
 // =============================================================================
 
 const PORT = process.env.PORT || 3000;
-const DOWNLOADS_DIR = process.env.DOWNLOADS_DIR || path.join(process.cwd(), 'downloads');
+
+// ⭐ FIXED: Default download folder - C:\Users\Jackle\Downloads for Windows
+function getDefaultDownloadsDir() {
+    // If environment variable is set, use it
+    if (process.env.DOWNLOADS_DIR) {
+        return process.env.DOWNLOADS_DIR;
+    }
+    
+    // Detect OS and set appropriate default
+    const os = process.platform;
+    if (os === 'win32') {
+        // Windows: Use user's Downloads folder (default: Jackle)
+        const username = process.env.USERNAME || 'Jackle';
+        return `C:\\Users\\${username}\\Downloads`;
+    } else if (os === 'darwin') {
+        // macOS: Use Downloads folder
+        const home = process.env.HOME || '/Users/' + (process.env.USER || 'user');
+        return path.join(home, 'Downloads');
+    } else {
+        // Linux/Other: Use ~/Downloads or fallback to ./downloads
+        const home = process.env.HOME || process.cwd();
+        const downloadsPath = path.join(home, 'Downloads');
+        // If ~/Downloads exists, use it; otherwise use ./downloads
+        try {
+            if (fs.existsSync(downloadsPath)) {
+                return downloadsPath;
+            }
+        } catch (e) {}
+        return path.join(process.cwd(), 'downloads');
+    }
+}
+
+const DOWNLOADS_DIR = getDefaultDownloadsDir();
 
 // Ensure downloads directory exists
 if (!fs.existsSync(DOWNLOADS_DIR)) {
