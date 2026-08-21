@@ -2076,7 +2076,9 @@ function parseFormatsFromText(text) {
         const parts = line.trim().split(/\s{2,}/); // Split by 2+ spaces
         
         if (parts.length >= 2) {
-            const formatId = parts[0].trim();
+            // ⭐ FIXED: Extract ONLY the numeric/format ID (e.g., "160"), not "160 mp4"
+            let rawFormatId = parts[0].trim();
+            const formatId = rawFormatId.split(/\s+/)[0]; // Take first part before any space
             const extPart = parts[1].trim();
             
             // Extract extension
