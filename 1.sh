@@ -935,16 +935,18 @@ start_server() {
     # ⭐ FIXED: Set default download directory based on OS
     if [[ "$OSTYPE" == "msys" || "$OSTYPE" == "cygwin" ]] || [[ -n "$WINDIR" || -n "windir" ]]; then
         # Windows (Git Bash/Cygwin/MSYS)
-        export DOWNLOADS_DIR="C:\\Users\\Jackle\\Downloads"
+        export DOWNLOADS_DIR="C:\\Users\\Jackle\\Downloads\\YouTube-Downloader"
         log "Windows detected: Setting DOWNLOADS_DIR=$DOWNLOADS_DIR"
     elif [[ "$OSTYPE" == "darwin"* ]]; then
         # macOS
-        export DOWNLOADS_DIR="$HOME/Downloads"
+        export DOWNLOADS_DIR="$HOME/Downloads/YouTube-Downloader"
         log "macOS detected: Setting DOWNLOADS_DIR=$DOWNLOADS_DIR"
     else
         # Linux/Unix
-        if [ -d "$HOME/Downloads" ]; then
-            export DOWNLOADS_DIR="$HOME/Downloads"
+        if [ -d "$HOME/Downloads/YouTube-Downloader" ]; then
+            export DOWNLOADS_DIR="$HOME/Downloads/YouTube-Downloader"
+        elif [ -d "$HOME/Downloads" ]; then
+            export DOWNLOADS_DIR="$HOME/Downloads/YouTube-Downloader"
         else
             export DOWNLOADS_DIR="$SCRIPT_DIR/server/downloads"
         fi

@@ -1155,8 +1155,8 @@
                             <div class="setting-input-group">
                                 <input type="text" 
                                        id="downloadsDirInput" 
-                                       value="C:\Users\Jackle\Downloads"
-                                       placeholder="C:\Users\Jackle\Downloads"
+                                       value="C:\Users\Jackle\Downloads\YouTube-Downloader"
+                                       placeholder="C:\Users\Jackle\Downloads\YouTube-Downloader"
                                        class="setting-input">
                                 <button class="btn-primary btn-small" onclick="openFolderPicker()" title="Browse folder">
                                     📂 Browse
@@ -1191,7 +1191,7 @@
 
                         <!-- Current Status -->
                         <div class="setting-status" id="folderStatus">
-                            <span>ℹ️ Default: <strong>C:\Users\Jackle\Downloads</strong></span>
+                            <span>ℹ️ Default: <strong>C:\Users\Jackle\Downloads\YouTube-Downloader</strong></span>
                         </div>
                     </div>
                 </div>
@@ -1368,7 +1368,7 @@
                     const data = result.data;
                     
                     // Set default to user's Downloads folder if empty
-                    const currentDir = data.currentDownloadsDir || 'C:\\Users\\Jackle\\Downloads';
+                    const currentDir = data.currentDownloadsDir || 'C:\\Users\\Jackle\\Downloads\\YouTube-Downloader';
                     document.getElementById('downloadsDirInput').value = currentDir;
                     
                     const infoHtml = `
@@ -1396,7 +1396,7 @@
         }
         
         async function saveDownloadFolder() {
-            const newFolder = document.getElementById('downloadsDirInput').value.trim() || 'C:\\Users\\Jackle\\Downloads';
+            const newFolder = document.getElementById('downloadsDirInput').value.trim() || 'C:\\Users\\Jackle\\Downloads\\YouTube-Downloader';
             
             const statusEl = document.getElementById('folderStatus');
             statusEl.innerHTML = '<span>⏳ Saving...</span>';
@@ -1494,7 +1494,7 @@
             
             switch(preset) {
                 case 'downloads':
-                    newPath = homeDir + 'Downloads';
+                    newPath = homeDir + 'Downloads\\YouTube-Downloader';
                     presetName = '📥 Downloads';
                     break;
                 case 'desktop':
@@ -1949,6 +1949,7 @@
                         videoId: video.id || video.videoId,
                         title: video.title,
                         channelId: currentChannel?.id,
+                        channelName: currentChannel?.name,  // ⭐ NEW: Send channel name for folder organization
                         format: 'best',
                         quality: 'lowest'
                     })

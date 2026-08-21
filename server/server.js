@@ -323,18 +323,18 @@ function getDefaultDownloadsDir() {
     // Detect OS and set appropriate default
     const os = process.platform;
     if (os === 'win32') {
-        // Windows: Use user's Downloads folder (default: Jackle)
+        // Windows: Use user's Downloads folder with YouTube-Downloader subfolder (default: Jackle)
         const username = process.env.USERNAME || 'Jackle';
-        return `C:\\Users\\${username}\\Downloads`;
+        return `C:\\Users\\${username}\\Downloads\\YouTube-Downloader`;
     } else if (os === 'darwin') {
-        // macOS: Use Downloads folder
+        // macOS: Use Downloads folder with YouTube-Downloader subfolder
         const home = process.env.HOME || '/Users/' + (process.env.USER || 'user');
-        return path.join(home, 'Downloads');
+        return path.join(home, 'Downloads', 'YouTube-Downloader');
     } else {
-        // Linux/Other: Use ~/Downloads or fallback to ./downloads
+        // Linux/Other: Use ~/Downloads/YouTube-Downloader or fallback to ./downloads
         const home = process.env.HOME || process.cwd();
-        const downloadsPath = path.join(home, 'Downloads');
-        // If ~/Downloads exists, use it; otherwise use ./downloads
+        const downloadsPath = path.join(home, 'Downloads', 'YouTube-Downloader');
+        // If ~/Downloads/YouTube-Downloader exists, use it; otherwise use ./downloads
         try {
             if (fs.existsSync(downloadsPath)) {
                 return downloadsPath;
@@ -345,6 +345,25 @@ function getDefaultDownloadsDir() {
 }
 
 const DOWNLOADS_DIR = getDefaultDownloadsDir();
+
+// ⭐ NEW: Function to get channel-specific download directory
+function getChannelDownloadDir(channelName) {
+    // Sanitize channel name for use as folder name (remove invalid characters)
+    const safeChannelName = (channelName || 'Unknown_Channel')
+        .replace(/[<>:"/\\|?*]/g, '_')  // Replace invalid chars
+        .replace(/\s+/g, '_')              // Replace spaces with underscores
+        .substring(0, 100);                 // Limit length
+    
+    const channelDir = path.join(DOWNLOADS_DIR, safeChannelName);
+    
+    // Create channel directory if it doesn't exist
+    if (!fs.existsSync(channelDir)) {
+        fs.mkdirSync(channelDir, { recursive: true });
+        console.log('[Init] Created channel directory:', channelDir);
+    }
+    
+    return channelDir;
+}
 
 // Ensure downloads directory exists
 if (!fs.existsSync(DOWNLOADS_DIR)) {
@@ -1177,10 +1196,11 @@ app.post('/api/download', async (req, res) => {
             url,           // Video URL
             videoId,       // Video ID (alternative)
             channelId,     // Parent channel ID
+            channelName,   // ⭐ NEW: Channel name for folder organization
             format,        // Video format preference
             quality,        // Quality preference
             filename,       // Custom filename
-            title           // ⭐ VIDEO TITLE (for rename feature!)
+            title           // VIDEO TITLE (for rename feature!)
         } = req.body;
         
         // Determine video URL
@@ -1198,13 +1218,18 @@ app.post('/api/download', async (req, res) => {
         console.log('   - URL:', videoUrl);
         console.log('   - Video ID:', videoId || 'extracted from URL');
         console.log('   - Channel ID:', channelId || 'N/A');
+        console.log('   - Channel Name:', channelName || 'N/A (will use root downloads folder)');
         console.log('   - Format:', format || 'auto (best)');
         console.log('   - Quality:', quality || 'auto');
+
+        // ⭐ NEW: Determine output directory (channel-specific or root)
+        const outputDir = channelName ? getChannelDownloadDir(channelName) : DOWNLOADS_DIR;
+        console.log('[Download] Output directory:', outputDir);
 
         const downloadId = uuidv4();
         const safeFilename = (filename || `video_${downloadId}`).replace(/[^a-zA-Z0-9._-]/g, '_');
         const outputFilename = safeFilename.endsWith('.mp4') ? safeFilename : `${safeFilename}.mp4`;
-        const outputPath = path.join(DOWNLOADS_DIR, outputFilename);
+        const outputPath = path.join(outputDir, outputFilename);  // ⭐ CHANGED: Use outputDir instead of DOWNLOADS_DIR
 
         console.log('[Download] Creating download job:');
         console.log('   - Download ID:', downloadId);
@@ -2068,7 +2093,7 @@ app.post('/api/download/batch', async (req, res) => {
     console.log('='.repeat(80));
 
     try {
-        const { videos, format, quality, channelId } = req.body;
+        const { videos, format, quality, channelId, channelName } = req.body;  // ⭐ ADDED: channelName
 
         if (!videos || !Array.isArray(videos) || videos.length === 0) {
             return res.status(400).json({
@@ -2079,6 +2104,11 @@ app.post('/api/download/batch', async (req, res) => {
 
         console.log(`[Batch Download] Received ${videos.length} videos for batch download`);
         console.log(`[Batch Download] Format: ${format || 'auto'}, Quality: ${quality || 'auto'}`);
+        console.log(`[Batch Download] Channel Name: ${channelName || 'N/A (root folder)'}`);
+
+        // ⭐ NEW: Determine output directory (channel-specific or root)
+        const outputDir = channelName ? getChannelDownloadDir(channelName) : DOWNLOADS_DIR;
+        console.log(`[Batch Download] Output directory: ${outputDir}`);
 
         const results = [];
         let skippedCount = 0;
@@ -2118,7 +2148,7 @@ app.post('/api/download/batch', async (req, res) => {
             const downloadId = uuidv4();
             const safeTitle = videoTitle.replace(/[^a-zA-Z0-9._-]/g, '_').substring(0, 100);
             const outputFilename = `${safeTitle}_${downloadId}.mp4`;
-            const outputPath = path.join(DOWNLOADS_DIR, outputFilename);
+            const outputPath = path.join(outputDir, outputFilename);  // ⭐ CHANGED: Use outputDir
 
             // Double-check file doesn't exist
             const existingFile = checkFileExists(outputFilename);
