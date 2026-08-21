@@ -319,157 +319,454 @@ setup_ffmpeg() {
 }
 
 # =============================================================================
-# FUNCTION: Cookie Extraction with Multiple Fallbacks
+# Browser detection - Clean output, no contamination
+# =============================================================================
+detect_browser() {
+    echo "[✓] Detecting browsers for cookie extraction..." >&2
+
+    if [ "$IS_WINDOWS" = true ] || [ "$IS_CYGWIN" = true ] || [ "$IS_MSYS" = true ]; then
+        local APPDATA_LOCAL="$LOCALAPPDATA"
+        local APPDATA_ROAMING="$APPDATA"
+
+        if [ -d "$APPDATA_LOCAL/Microsoft/Edge/User Data" ]; then
+            echo "[•] Checking for: edge" >&2
+            echo "[OK] Found browser: edge" >&2
+            echo "edge"
+            return 0
+        fi
+
+        echo "[•] Checking for: chrome" >&2
+        if [ -d "$APPDATA_LOCAL/Google/Chrome/User Data" ]; then
+            echo "[OK] Found browser: chrome" >&2
+            echo "chrome"
+            return 0
+        fi
+
+        echo "[•] Checking for: vivaldi" >&2
+        if [ -d "$APPDATA_LOCAL/Vivaldi/User Data" ]; then
+            echo "[OK] Found browser: vivaldi" >&2
+            echo "vivaldi"
+            return 0
+        fi
+
+        echo "[•] Checking for: brave" >&2
+        if [ -d "$APPDATA_LOCAL/BraveSoftware/Brave-Browser/User Data" ]; then
+            echo "[OK] Found browser: brave" >&2
+            echo "brave"
+            return 0
+        fi
+
+        echo "[•] Checking for: firefox" >&2
+        if [ -d "$APPDATA_ROAMING/Mozilla/Firefox/Profiles" ]; then
+            echo "[OK] Found browser: firefox" >&2
+            echo "firefox"
+            return 0
+        fi
+
+    elif [ "$IS_MAC" = true ]; then
+        if [ -d "$HOME/Library/Application Support/Microsoft Edge" ]; then
+            echo "edge"; return 0; fi
+        if [ -d "$HOME/Library/Application Support/Google/Chrome" ]; then
+            echo "chrome"; return 0; fi
+        if [ -d "$HOME/Library/Application Support/Vivaldi" ]; then
+            echo "vivaldi"; return 0; fi
+        if [ -d "$HOME/Library/Application Support/Firefox/Profiles" ]; then
+            echo "firefox"; return 0; fi
+
+    else
+        if [ -d "$HOME/.config/microsoft-edge" ] || [ -d "$HOME/.config/edge" ]; then
+            echo "edge"; return 0; fi
+        if [ -d "$HOME/.config/google-chrome" ] || [ -d "$HOME/.config/chromium" ]; then
+            echo "chrome"; return 0; fi
+        if [ -d "$HOME/.config/vivaldi" ]; then
+            echo "vivaldi"; return 0; fi
+        if [ -d "$HOME/.config/BraveSoftware" ]; then
+            echo "brave"; return 0; fi
+        if [ -d "$HOME/.mozilla/firefox" ]; then
+            echo "firefox"; return 0; fi
+    fi
+
+    echo "[ERROR] No supported browser found!" >&2
+    return 1
+}
+
+# =============================================================================
+# Test cookies work with yt-dlp (using --cookies-from-browser, live check only)
+# =============================================================================
+test_cookies() {
+    local BROWSER="$1"
+
+    log "Testing cookie extraction from $BROWSER..."
+
+    local TEST_OUTPUT
+    if TEST_OUTPUT=$(yt-dlp --cookies-from-browser "$BROWSER" --skip-download --flat-playlist "https://www.youtube.com/watch?v=dQw4w9WgXcQ" 2>&1); then
+        ok "Cookie extraction working!"
+        return 0
+    else
+        warn "Cookie test warning (may still work):"
+        echo "$TEST_OUTPUT" | tail -5
+        return 0
+    fi
+}
+
+# =============================================================================
+# CHECK IF COOKIES.TXT ALREADY EXISTS - SKIP EXTRACTION IF FOUND
+# =============================================================================
+check_existing_cookies() {
+    log "Checking for existing cookies.txt..."
+    
+    # Check in project folder
+    if [ -f "$COOKIES_FILE" ] && [ -s "$COOKIES_FILE" ]; then
+        local COOKIE_COUNT
+        COOKIE_COUNT=$(grep -vc '^#\|^$' "$COOKIES_FILE" 2>/dev/null || echo "0")
+        if [ "$COOKIE_COUNT" -gt 0 ]; then
+            ok "✅ cookies.txt already exists with $COOKIE_COUNT cookie entries!"
+            log "Skipping cookie extraction (using existing file)"
+            export COOKIES_EXPORTED=true
+            return 0
+        fi
+    fi
+    
+    # Check in script directory (where Python script might have created it)
+    if [ -f "$SCRIPT_DIR/cookies.txt" ] && [ -s "$SCRIPT_DIR/cookies.txt" ]; then
+        local COOKIE_COUNT
+        COOKIE_COUNT=$(grep -vc '^#\|^$' "$SCRIPT_DIR/cookies.txt" 2>/dev/null || echo "0")
+        if [ "$COOKIE_COUNT" -gt 0 ]; then
+            ok "✅ cookies.txt found in script directory with $COOKIE_COUNT entries"
+            log "Copying to project folder..."
+            mkdir -p "$(dirname "$COOKIES_FILE")"
+            cp "$SCRIPT_DIR/cookies.txt" "$COOKIES_FILE"
+            ok "✅ cookies.txt copied to: $COOKIES_FILE"
+            export COOKIES_EXPORTED=true
+            return 0
+        fi
+    fi
+    
+    log "No existing cookies.txt found. Will attempt extraction."
+    export COOKIES_EXPORTED=false
+    return 1
+}
+
+# =============================================================================
+# AGGRESSIVELY KILL EDGE AND EXTRACT COOKIES WITH WORKING PYTHON SCRIPT
+# FIXED FOR CYGWIN/MSYS PATH ISSUES
+# =============================================================================
+kill_edge_and_extract_cookies() {
+    step "AGGRESSIVELY KILLING EDGE & EXTRACTING COOKIES"
+
+    log "⚠️  Edge must be completely closed to extract cookies."
+    log "Starting aggressive Edge termination loop..."
+
+    # Function to check if Edge is running - FIXED for Cygwin
+    check_edge_running() {
+        if [ "$IS_WINDOWS" = true ] || [ "$IS_CYGWIN" = true ] || [ "$IS_MSYS" = true ]; then
+            # Try multiple methods to detect Edge
+            if command -v tasklist >/dev/null 2>&1; then
+                tasklist 2>/dev/null | grep -i "msedge.exe" >/dev/null 2>&1
+                return $?
+            elif [ -f /c/Windows/System32/tasklist.exe ]; then
+                /c/Windows/System32/tasklist.exe 2>/dev/null | grep -i "msedge.exe" >/dev/null 2>&1
+                return $?
+            else
+                # Fallback: check via ps
+                ps aux 2>/dev/null | grep -i "msedge.exe" | grep -v grep >/dev/null 2>&1
+                return $?
+            fi
+        elif [ "$IS_MAC" = true ]; then
+            pgrep -f "Microsoft Edge" >/dev/null 2>&1
+            return $?
+        else
+            pgrep -f "microsoft-edge" >/dev/null 2>&1
+            return $?
+        fi
+    }
+
+    # Kill Edge function - FIXED for Cygwin path issues
+    kill_edge() {
+        if [ "$IS_WINDOWS" = true ] || [ "$IS_CYGWIN" = true ] || [ "$IS_MSYS" = true ]; then
+            # Method 1: Try using cmd /c with proper quoting
+            if command -v cmd >/dev/null 2>&1; then
+                cmd //c "taskkill /F /IM msedge.exe 2>nul" 2>/dev/null || true
+                # Also kill with /T to kill child processes
+                cmd //c "taskkill /F /T /IM msedge.exe 2>nul" 2>/dev/null || true
+            # Method 2: Try using taskkill directly if available
+            elif command -v taskkill >/dev/null 2>&1; then
+                taskkill /F /IM msedge.exe 2>/dev/null || true
+                taskkill /F /T /IM msedge.exe 2>/dev/null || true
+            # Method 3: Try Windows path directly
+            elif [ -f /c/Windows/System32/taskkill.exe ]; then
+                /c/Windows/System32/taskkill.exe /F /IM msedge.exe 2>/dev/null || true
+                /c/Windows/System32/taskkill.exe /F /T /IM msedge.exe 2>/dev/null || true
+            # Method 4: Try pkill
+            elif command -v pkill >/dev/null 2>&1; then
+                pkill -f msedge.exe 2>/dev/null || true
+            else
+                # Last resort: try to kill via Windows API using wmic
+                if command -v wmic >/dev/null 2>&1; then
+                    wmic process where "name='msedge.exe'" delete 2>/dev/null || true
+                fi
+            fi
+        elif [ "$IS_MAC" = true ]; then
+            pkill -f "Microsoft Edge" 2>/dev/null || true
+        else
+            pkill -f "microsoft-edge" 2>/dev/null || true
+        fi
+    }
+
+    # Aggressive kill loop - keep trying until Edge is dead
+    local ATTEMPT=0
+    local MAX_ATTEMPTS=20  # Try up to 20 times (100 seconds max)
+    local KILL_INTERVAL=5  # Check every 5 seconds
+
+    while check_edge_running; do
+        ATTEMPT=$((ATTEMPT + 1))
+        
+        if [ $ATTEMPT -gt $MAX_ATTEMPTS ]; then
+            warn "⚠️  Edge still running after $MAX_ATTEMPTS attempts!"
+            warn "Please close Edge manually and press Enter to continue..."
+            read -p "Press Enter after closing Edge completely... "
+            
+            # One final check
+            if check_edge_running; then
+                error "Edge is still running. Cannot extract cookies."
+                return 1
+            fi
+            break
+        fi
+        
+        echo -n "  Attempt $ATTEMPT: Killing Edge processes..."
+        kill_edge
+        echo " done."
+        
+        sleep $KILL_INTERVAL
+    done
+
+    # Edge is dead - wait extra 5 seconds to ensure file locks are released
+    log "✅ All Edge processes killed!"
+    log "Waiting 5 seconds for file locks to be released..."
+    sleep 5
+    ok "File locks should now be released."
+
+    # Create the working Python cookie extraction script
+    log "Creating working Python cookie extractor..."
+    
+    local PYTHON_SCRIPT="$SCRIPT_DIR/export_cookies_fixed.py"
+    
+    cat > "$PYTHON_SCRIPT" << 'PYEOF'
+#!/usr/bin/env python3
+"""
+Fixed Cookie Extractor for Edge Browser
+Extracts YouTube cookies from Edge's Network/Cookies database
+"""
+
+import os
+import sys
+import sqlite3
+import shutil
+from pathlib import Path
+
+def extract_edge_cookies():
+    """Extract cookies from Edge browser (Windows)"""
+    edge_path = Path(os.environ['LOCALAPPDATA']) / 'Microsoft' / 'Edge' / 'User Data' / 'Default' / 'Network'
+    cookie_db = edge_path / 'Cookies'
+    
+    if not cookie_db.exists():
+        print(f"❌ Edge cookies database not found at: {cookie_db}")
+        return None
+    
+    print(f"📁 Found edge cookies at: {cookie_db}")
+    
+    # Copy the database (Edge locks it)
+    temp_db = Path('temp_cookies.db')
+    try:
+        shutil.copy2(cookie_db, temp_db)
+        print("✅ Cookie database copied successfully")
+    except Exception as e:
+        print(f"❌ Failed to copy database: {e}")
+        return None
+    
+    # Extract cookies for youtube.com
+    conn = None
+    cursor = None
+    try:
+        conn = sqlite3.connect(str(temp_db))
+        cursor = conn.cursor()
+        
+        # Create cookies.txt in Netscape format
+        with open('cookies.txt', 'w', encoding='utf-8') as f:
+            f.write('# Netscape HTTP Cookie File\n')
+            
+            cursor.execute("""
+                SELECT host_key, path, is_secure, expires_utc, name, value 
+                FROM cookies 
+                WHERE host_key LIKE '%youtube.com%'
+            """)
+            
+            count = 0
+            for row in cursor.fetchall():
+                host, path, secure, expires, name, value = row
+                # Convert Edge's timestamp to Unix time
+                if expires > 0:
+                    # Edge uses microseconds since 1601-01-01
+                    expires_sec = int(expires / 1000000 - 11644473600)
+                else:
+                    expires_sec = 0
+                
+                secure_flag = 'TRUE' if secure else 'FALSE'
+                f.write(f"{host}\t{secure_flag}\t{path}\t{secure_flag}\t{expires_sec}\t{name}\t{value}\n")
+                count += 1
+        
+        print(f"✅ Extracted {count} cookies for youtube.com")
+        return 'cookies.txt'
+        
+    except Exception as e:
+        print(f"❌ Error extracting cookies: {e}")
+        return None
+    finally:
+        # Close cursor and connection properly
+        if cursor:
+            cursor.close()
+        if conn:
+            conn.close()
+        # Try to delete temp file
+        try:
+            if temp_db.exists():
+                temp_db.unlink()
+                print("✅ Temporary file cleaned up")
+        except PermissionError:
+            print("⚠️ Could not delete temp file (will be deleted on next restart)")
+
+if __name__ == '__main__':
+    print("🔍 Searching for browser cookies...")
+    result = extract_edge_cookies()
+    if result:
+        print(f"✅ Cookies saved to: {result}")
+        # Show the first few lines of the cookie file
+        try:
+            with open(result, 'r') as f:
+                lines = f.readlines()
+                print(f"\n📋 First few cookies (preview):")
+                for line in lines[1:4]:  # Skip header
+                    print(f"   {line.strip()[:80]}...")
+        except:
+            pass
+        sys.exit(0)
+    else:
+        print("❌ Could not extract cookies from any browser")
+        sys.exit(1)
+PYEOF
+
+    chmod +x "$PYTHON_SCRIPT"
+    ok "Python cookie extractor created at: $PYTHON_SCRIPT"
+
+    # Run the Python script
+    log "Running Python cookie extractor..."
+    
+    local PYTHON_CMD="python"
+    if command -v python3 >/dev/null 2>&1; then
+        PYTHON_CMD="python3"
+    fi
+    
+    # Change to script directory to ensure cookies.txt is created there
+    cd "$SCRIPT_DIR"
+    
+    # Double-check Edge is still dead before running Python
+    if check_edge_running; then
+        warn "⚠️  Edge started again! Killing it one more time..."
+        kill_edge
+        sleep 3
+    fi
+    
+    if $PYTHON_CMD "$PYTHON_SCRIPT" 2>&1; then
+        if [ -f "$SCRIPT_DIR/cookies.txt" ] && [ -s "$SCRIPT_DIR/cookies.txt" ]; then
+            local COOKIE_COUNT
+            COOKIE_COUNT=$(grep -vc '^#\|^$' "$SCRIPT_DIR/cookies.txt" 2>/dev/null || echo "0")
+            ok "✅ Python extraction succeeded! ($COOKIE_COUNT cookie entries)"
+            
+            # Copy cookies.txt to the project folder
+            mkdir -p "$(dirname "$COOKIES_FILE")"
+            cp "$SCRIPT_DIR/cookies.txt" "$COOKIES_FILE"
+            ok "✅ cookies.txt copied to: $COOKIES_FILE"
+            export COOKIES_EXPORTED=true
+            return 0
+        fi
+    fi
+    
+    warn "Python extraction failed"
+    export COOKIES_EXPORTED=false
+    return 1
+}
+
+# =============================================================================
+# FALLBACK METHOD: Manual Browser Extension Export
+# =============================================================================
+manual_cookies_export() {
+    step "FALLBACK: MANUAL COOKIES EXPORT"
+    
+    echo ""
+    echo "╔══════════════════════════════════════════════════════════════╗"
+    echo "║  AUTOMATIC COOKIE EXTRACTION FAILED                        ║"
+    echo "║                                                              ║"
+    echo "║  Please export cookies manually using one of these methods: ║"
+    echo "║                                                              ║"
+    echo "║  METHOD A: Browser Extension (Easiest)                     ║"
+    echo "║    1. Install 'Get cookies.txt LOCALLY' extension:         ║"
+    echo "║       Chrome: https://chrome.google.com/webstore/...       ║"
+    echo "║       Firefox: https://addons.mozilla.org/...              ║"
+    echo "║    2. Go to YouTube.com and log in                        ║"
+    echo "║    3. Click the extension icon > Export cookies.txt       ║"
+    echo "║    4. Save to: $COOKIES_FILE                              ║"
+    echo "║                                                              ║"
+    echo "║  METHOD B: Python Script (Already created)                 ║"
+    echo "║    1. Close Edge completely                               ║"
+    echo "║    2. Run: python export_cookies_fixed.py                ║"
+    echo "║                                                              ║"
+    echo "╚══════════════════════════════════════════════════════════════╝"
+    echo ""
+    
+    read -p "Press Enter after you've saved cookies.txt to continue... "
+    
+    if [ -f "$COOKIES_FILE" ] && [ -s "$COOKIES_FILE" ]; then
+        ok "✅ cookies.txt found and loaded!"
+        export COOKIES_EXPORTED=true
+        return 0
+    else
+        warn "Still no cookies.txt found. Continuing without cookies..."
+        export COOKIES_EXPORTED=false
+        return 1
+    fi
+}
+
+# =============================================================================
+# Enhanced cookie extraction with fallbacks - NOW CHECKS EXISTING FIRST
 # =============================================================================
 export_cookies_with_fallbacks() {
-    step "COOKIE EXTRACTION"
-
-    COOKIES_EXPORTED="not extracted"
+    local BROWSER="$1"
     
-    # Check if cookies file already exists and is valid
-    if [ -f "$COOKIES_FILE" ]; then
-        log "Checking existing cookies file: $COOKIES_FILE"
-        
-        # Basic validation - check if file has content and looks like cookies
-        if [ -s "$COOKIES_FILE" ] && grep -q "youtube\.com\|#HttpOnly_" "$COOKIES_FILE" 2>/dev/null; then
-            ok "✅ Valid cookies.txt already exists! Skipping extraction."
-            COOKIES_EXPORTED="existing file"
-            return 0
-        else
-            warn "Cookies file exists but appears invalid. Re-extracting..."
-            rm -f "$COOKIES_FILE"
-        fi
+    step "COOKIE EXTRACTION (WITH EXISTING FILE DETECTION)"
+
+    # FIRST: Check if cookies.txt already exists
+    if check_existing_cookies; then
+        export COOKIES_EXPORTED=true
+        return 0
     fi
-
-    # Try multiple cookie extraction methods
-    local EXTRACTION_SUCCESS=false
-
-    # Method 1: Python browser_cookie3 (most reliable)
-    log "Attempting Python cookie extraction..."
-    if python3 -c "import browser_cookie3" 2>/dev/null || python -c "import browser_cookie3" 2>/dev/null; then
-        log "browser_cookie3 module found, extracting cookies..."
-        
-        local PYTHON_CMD="python3"
-        if ! command -v python3 >/dev/null 2>&1; then
-            PYTHON_CMD="python"
-        fi
-        
-        # Create Python extraction script
-        local COOKIE_SCRIPT=$(mktemp)
-        cat > "$COOKIE_SCRIPT" << 'PYEOF'
-import sys
-try:
-    import browser_cookie3
-    import json
     
-    cookies = browser_cookie3.load(domain_name='youtube.com')
+    # SECOND: Try killing Edge and using Python script
+    if kill_edge_and_extract_cookies; then
+        export COOKIES_EXPORTED=true
+        return 0
+    fi
     
-    output_file = sys.argv[1] if len(sys.argv) > 1 else 'cookies.txt'
+    # THIRD: Try manual browser extension
+    if manual_cookies_export; then
+        export COOKIES_EXPORTED=true
+        return 0
+    fi
     
-    with open(output_file, 'w') as f:
-        f.write('# Netscape HTTP Cookie File\n')
-        for cookie in cookies:
-            domain = cookie.domain if not cookie.domain.startswith('.') else cookie.domain[1:]
-            flag = 'TRUE' if cookie.domain.startswith('.') else 'FALSE'
-            path = cookie.path if cookie.path else '/'
-            secure = 'TRUE' if cookie.secure else 'FALSE'
-            expires = int(cookie.expires) if cookie.expires else 0
-            name = cookie.name
-            value = cookie.value
-            
-            f.write(f"{domain}\t{flag}\t{path}\t{secure}\t{expires}\t{name}\t{value}\n")
-    
-    print(f"SUCCESS: Exported {len(cookies)} cookies to {output_file}")
-except Exception as e:
-    print(f"ERROR: {str(e)}", file=sys.stderr)
-    sys.exit(1)
-PYEOF
-        
-        if $PYTHON_CMD "$COOKIE_SCRIPT" "$COOKIES_FILE" 2>/tmp/cookie_error.log; then
-            ok "✅ Cookies exported successfully using Python!"
-            EXTRACTION_SUCCESS=true
-            COOKIES_EXPORTED="Python extraction"
-        else
-            warn "Python extraction failed: $(cat /tmp/cookie_error.log 2>/dev/null)"
-        fi
-        
-        rm -f "$COOKIE_SCRIPT"
-    else
-        log "browser_cookie3 not installed, trying other methods..."
-    fi
-
-    # Method 2: Edge/Chrome direct DB extraction (Windows/Cygwin)
-    if [ "$EXTRACTION_SUCCESS" = false ] && ([ "$IS_WINDOWS" = true ] || [ "$IS_CYGWIN" = true ]); then
-        log "Trying direct Edge/Chrome cookie database extraction..."
-        
-        # Find Edge/Chrome cookie database
-        local COOKIE_DB=""
-        local POSSIBLE_DBS=(
-            "$LOCALAPPDATA/Microsoft/Edge/User Data/Default/Cookies"
-            "$LOCALAPPDATA/Google/Chrome/User Data/Default/Cookies"
-            "$HOME/.config/microsoft-edge/Default/Cookies"
-            "$HOME/.config/google-chrome/Default/Cookies"
-        )
-        
-        for db in "${POSSIBLE_DBS[@]}"; do
-            if [ -f "$db" ]; then
-                COOKIE_DB="$db"
-                break
-            fi
-        done
-        
-        if [ -n "$COOKIE_DB" ] && command -v sqlite3 >/dev/null 2>&1; then
-            log "Found cookie database: $COOKIE_DB"
-            
-            # Copy DB to avoid lock issues
-            local TEMP_DB="/tmp/cookies_extract_$$.db"
-            cp "$COOKIE_DB" "$TEMP_DB" 2>/dev/null
-            
-            if sqlite3 "$TEMP_DB" "SELECT host_key, path, is_secure, expires_utc, name, encrypted_value FROM cookies WHERE host_key LIKE '%youtube%'" > /tmp/cookies_raw.txt 2>/dev/null; then
-                warn "Cookie data extracted but may need decryption"
-                warn "This method has limited success on modern Chrome/Edge"
-            fi
-            
-            rm -f "$TEMP_DB"
-        fi
-    fi
-
-    # Method 3: Use yt-dlp's built-in cookie support (fallback)
-    if [ "$EXTRACTION_SUCCESS" = false ]; then
-        log "Setting up browser-based cookie fallback..."
-        
-        # We'll let yt-dlp use --cookies-from-browser as fallback
-        if [ "$IS_WINDOWS" = true ] || [ "$IS_CYGWIN" = true ]; then
-            # On Windows, try to use Edge/Chrome cookies directly
-            for browser in "edge" "chrome" "brave"; do
-                if yt-dlp --cookies-from-browser "$browser" --list-extractors >/dev/null 2>&1; then
-                    log "Browser cookie access works for: $browser"
-                    COOKIES_EXPORTED="browser ($browser)"
-                    break
-                fi
-            done
-        fi
-    fi
-
-    # Final status
-    if [ "$EXTRACTION_SUCCESS" = true ] || [ -f "$COOKIES_FILE" ]; then
-        if [ -f "$COOKIES_FILE" ]; then
-            ok "✅ Cookie export complete!"
-            log "Cookies saved to: $COOKIES_FILE"
-            COOKIES_EXPORTED="file ready"
-        else
-            ok "✅ Browser-based cookie access configured"
-        fi
-    else
-        warn "⚠️  Could not extract cookies automatically"
-        warn "The downloader will work but might have limitations"
-        warn ""
-        warn "To manually export cookies:"
-        warn "  1. Install browser extension: 'Get cookies.txt LOCALLY'"
-        warn "  2. Go to youtube.com and export cookies"
-        warn "  3. Save to: $COOKIES_FILE"
-        COOKIES_EXPORTED="failed (will use browser)"
-    fi
+    # ALL METHODS FAILED
+    warn "All cookie extraction methods failed!"
+    export COOKIES_EXPORTED=false
+    return 1
 }
 
 # =============================================================================
@@ -760,7 +1057,13 @@ main() {
     detect_repo_structure           # Step 1: Detect repo structure (find server.js)
     install_ytdl                     # Step 2: Install yt-dlp
     setup_ffmpeg                    # Step 3: Setup FFmpeg
-    export_cookies_with_fallbacks   # Step 4: Cookie extraction
+    
+    # Step 4: Cookie Extraction (with browser detection)
+    BROWSER=$(detect_browser) || BROWSER="edge"
+    log "Detected browser: $BROWSER"
+    test_cookies "$BROWSER"         # Quick test if cookies work
+    export_cookies_with_fallbacks "$BROWSER"  # Main cookie extraction with fallbacks
+    
     install_npm_dependencies        # Step 5: Install Node.js dependencies
     patch_server                    # Step 6: Patch server.js
     copy_modified_files             # Step 7: Copy custom files
