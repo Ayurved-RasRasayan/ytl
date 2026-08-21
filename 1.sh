@@ -953,6 +953,40 @@ start_server() {
         log "Linux detected: Setting DOWNLOADS_DIR=$DOWNLOADS_DIR"
     fi
 
+    # ⭐ NEW: Auto-kill any existing server to prevent EADDRINUSE (port already in use) error
+    log "🔧 Checking for existing server processes..."
+    
+    if [[ "$OSTYPE" == "msys" || "$OSTYPE" == "cygwin" ]] || [[ -n "$WINDIR" || -n "windir" ]]; then
+        # Windows: Kill any node.exe processes using port 3000
+        log "Windows detected: Killing any existing node.exe processes..."
+        
+        # Find and kill process using port 3000
+        PORT_PID=$(netstat -ano | grep ":3000" | grep LISTENING | awk '{print $5}' | head -1)
+        if [ -n "$PORT_PID" ] && [ "$PORT_PID" != "0" ]; then
+            log "Found process $PORT_PID using port 3000, killing..."
+            taskkill //PID "$PORT_PID" //F 2>/dev/null || true
+            sleep 2
+        fi
+        
+        # Also kill any remaining node.exe processes (fallback)
+        taskkill //IM node.exe //F 2>/dev/null && {
+            log "✅ Killed existing node.exe processes"
+            sleep 2
+        } || log "No existing node.exe processes found"
+    else
+        # Unix/Mac: Kill process using port 3000
+        PORT_PID=$(lsof -ti:3000 2>/dev/null)
+        if [ -n "$PORT_PID" ]; then
+            log "Found process $PORT_PID using port 3000, killing..."
+            kill -9 "$PORT_PID" 2>/dev/null || true
+            sleep 2
+        else
+            log "No process using port 3000"
+        fi
+    fi
+    
+    log "✅ Port $PORT is now available"
+    
     # Start server in background with DOWNLOADS_DIR environment variable
     DOWNLOADS_DIR="$DOWNLOADS_DIR" node "$SERVER_JS" > /tmp/youtube-downloader-server.log 2>&1 &
     SERVER_PID=$!
