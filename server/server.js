@@ -1911,10 +1911,13 @@ async function renameDownloadedFile(downloadObj, originalPath) {
         }
         
         const newFilename = sanitizedTitle + '.mp4';
-        const newPath = path.join(DOWNLOADS_DIR, newFilename);
+        // ⭐ FIXED: Keep file in the SAME directory as original (channel folder), not base DOWNLOADS_DIR
+        const originalDir = path.dirname(originalPath);
+        const newPath = path.join(originalDir, newFilename);
         
         console.log('[Rename] New filename:', newFilename);
         console.log('[Rename] New path:', newPath);
+        console.log('[Rename] Original dir (keeping file here):', originalDir);
         
         // Check if source file exists
         if (!fs.existsSync(originalPath)) {
@@ -1948,7 +1951,8 @@ async function renameDownloadedFile(downloadObj, originalPath) {
         while (fs.existsSync(finalNewPath)) {
             counter++;
             finalNewFilename = `${sanitizedTitle} (${counter}).mp4`;
-            finalNewPath = path.join(DOWNLOADS_DIR, finalNewFilename);
+            // ⭐ FIXED: Keep in same directory (channel folder)
+            finalNewPath = path.join(originalDir, finalNewFilename);
             console.log('[Rename] Duplicate detected, trying:', finalNewFilename);
         }
         
