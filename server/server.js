@@ -1780,31 +1780,42 @@ function executeDownloadWithFormat(downloadId, videoUrl, outputPath, formatInfo,
 
         console.log(`\n[Execute Download] Starting: ${videoTitle}`);
         console.log(`[Execute Download] Format: ${formatInfo.formatId} (${formatInfo.resolution})`);
+        console.log(`[Execute Download] Needs merge: ${formatInfo.needsMerge}`);
 
-        // Build yt-dlp command with selected format
-        let cmd = `yt-dlp -f "${formatInfo.formatId}" -o "${outputPath}" --no-playlist`;
+        // ⭐ FIXED: Get output directory and base filename separately
+        const outputDir = path.dirname(outputPath);
+        const baseFilename = path.basename(outputPath, '.mp4');  // without extension
+        
+        // ⭐ FIXED: Use template that allows yt-dlp to handle merging properly
+        // When merging is needed, yt-dlp creates temp files then merges them
+        // Using %(title)s.%(ext)s template instead of fixed filename
+        const outputTemplate = path.join(outputDir, `${baseFilename}.%(ext)s`);
+        
+        console.log(`[Execute Download] Output dir: ${outputDir}`);
+        console.log(`[Execute Download] Output template: ${outputTemplate}`);
+
+        // Build arguments array for spawn (safer than shell command)
+        const args = [
+            '-f', formatInfo.formatId,
+            '-o', outputTemplate,
+            '--no-playlist'
+        ];
         
         // Add merge requirement if format needs it
         if (formatInfo.needsMerge) {
-            cmd += ' --merge-output-format mp4';
+            args.push('--merge-output-format', 'mp4');
             if (FFMPEG_AVAILABLE) {
                 console.log('[Execute Download] ✅ FFmpeg available for merging');
             } else {
                 console.warn('[Execute Download] ⚠️ FFmpeg not available, merge may fail');
             }
         }
+        
+        args.push(videoUrl);
 
-        cmd += ` "${videoUrl}"`;
+        console.log(`[Execute Download] Command: yt-dlp ${args.join(' ').substring(0, 150)}...`);
 
-        console.log(`[Execute Download] Command: ${cmd.substring(0, 150)}...`);
-
-        const ytDlpProcess = spawn('yt-dlp', [
-            '-f', formatInfo.formatId,
-            '-o', outputPath,
-            '--no-playlist',
-            ...(formatInfo.needsMerge && FFMPEG_AVAILABLE ? ['--merge-output-format', 'mp4'] : []),
-            videoUrl
-        ], {
+        const ytDlpProcess = spawn('yt-dlp', args, {
             stdio: ['pipe', 'pipe', 'pipe'],
             shell: true
         });
