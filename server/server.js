@@ -519,7 +519,8 @@ function normalizeForMatch(str) {
 
 /**
  * Calculate similarity ratio between two strings (0-1)
- * Uses simple token-based matching
+ * Uses strict token-based matching for accuracy
+ * VERSION 7.0: Stricter matching to prevent false positives!
  */
 function calculateSimilarity(str1, str2) {
     const norm1 = normalizeForMatch(str1);
@@ -530,22 +531,45 @@ function calculateSimilarity(str1, str2) {
     // Exact match
     if (norm1 === norm2) return 1;
     
-    // One contains the other
-    if (norm1.includes(norm2) || norm2.includes(norm1)) return 0.9;
+    // ⭐ FIXED: One contains the other - but require MINIMUM 10 chars match to prevent false positives
+    const shorter = norm1.length < norm2.length ? norm1 : norm2;
+    const longer = norm1.length < norm2.length ? norm2 : norm1;
     
-    // Token-based similarity
-    const tokens1 = new Set(norm1.split(' ').filter(t => t.length > 2));
-    const tokens2 = new Set(norm2.split(' ').filter(t => t.length > 2));
+    if (longer.includes(shorter) && shorter.length >= 15) {
+        return 0.95;  // Strong match for long substrings
+    }
+    
+    // For short strings, require exact match
+    if (shorter.length < 10) {
+        return norm1 === norm2 ? 1 : 0;
+    }
+    
+    // Token-based similarity (strict)
+    const tokens1 = new Set(norm1.split(' ').filter(t => t.length > 3));  // ⭐ Increased min token length
+    const tokens2 = new Set(norm2.split(' ').filter(t => t.length > 3));
     
     if (tokens1.size === 0 || tokens2.size === 0) return 0;
     
     let commonTokens = 0;
+    let totalMatchedLength = 0;
+    
     tokens1.forEach(token => {
-        if (tokens2.has(token)) commonTokens++;
+        if (tokens2.has(token)) {
+            commonTokens++;
+            totalMatchedLength += token.length;  // Weight by token length
+        }
     });
     
-    const similarity = (commonTokens * 2) / (tokens1.size + tokens2.size);
-    return similarity;
+    // ⭐ NEW: Calculate weighted similarity
+    const avgTokenLength = (totalMatchedLength / Math.max(commonTokens, 1));
+    const lengthBonus = Math.min(avgTokenLength / 10, 0.2);  // Bonus for longer matches
+    
+    const tokenSimilarity = (commonTokens * 2) / (tokens1.size + tokens2.size);
+    const finalSimilarity = Math.min(1, tokenSimilarity + lengthBonus);
+    
+    console.log(`[Similarity] "${norm1.substring(0, 30)}..." vs "${norm2.substring(0, 30)}..." = ${(finalSimilarity * 100).toFixed(1)}% (${commonTokens} common tokens)`);
+    
+    return finalSimilarity;
 }
 
 /**
@@ -615,10 +639,10 @@ function checkFileExists(filename) {
  * ⭐ NEW: Find downloaded file by video title (fuzzy matching)
  * Searches the downloadedFilesIndex for matching files
  * @param {string} title - Video title from YouTube
- * @param {number} threshold - Minimum similarity threshold (default 0.6)
+ * @param {number} threshold - Minimum similarity threshold (default 0.85 - STRICT!)
  * @returns {object|null} - File info object or null if not found
  */
-function findFileByTitle(title, threshold = 0.6) {
+function findFileByTitle(title, threshold = 0.85) {  // ⭐ INCREASED from 0.6 to 0.85!
     if (!title) return null;
     
     const normalizedTitle = normalizeForMatch(title);
@@ -852,7 +876,7 @@ function getVideoStatusInChannel(videoId, title, channelName) {
             
             // Try fuzzy match
             const similarity = calculateSimilarity(normalizedTitle, key);
-            if (similarity > bestSimilarity && similarity >= 0.6) {
+            if (similarity > bestSimilarity && similarity >= 0.85) {  // ⭐ INCREASED to 0.85!
                 bestSimilarity = similarity;
                 bestMatch = {
                     ...fileInfo,
@@ -1148,13 +1172,22 @@ app.post('/api/settings/test-folder', (req, res) => {
  * GET /api/downloaded-files
  * Returns comprehensive list of all files in download folder
  * Frontend uses this to sync video status!
+ * ⭐ NEW: Supports ?force=1 to force re-scan
  */
 app.get('/api/downloaded-files', (req, res) => {
+    const forceRescan = req.query.force === '1' || req.query.force === 'true';
+    
     console.log('\n[Download Sync] GET /api/downloaded-files - Frontend requesting file list');
+    if (forceRescan) {
+        console.log('[Download Sync] ⚡ FORCE RE-SCAN requested!');
+    }
     
     try {
-        // Re-scan to get latest state
-        scanExistingDownloads();
+        // ⭐ FIXED: Always re-scan to get latest state (or when forced)
+        if (forceRescan || downloadedFilesIndex.size === 0) {
+            console.log('[Download Sync] Scanning downloads directory...');
+            scanExistingDownloads();
+        }
         
         // Build comprehensive response
         const files = Array.from(downloadedFilesIndex.values()).map(fileInfo => ({
@@ -1164,7 +1197,8 @@ app.get('/api/downloaded-files', (req, res) => {
             sizeMB: fileInfo.sizeMB,
             modified: fileInfo.modified,
             modifiedISO: fileInfo.modified.toISOString(),
-            path: fileInfo.path
+            path: fileInfo.path,
+            channelFolder: fileInfo.channelFolder  // ⭐ NEW: Include channel info
         }));
         
         // Sort by modification date (newest first)
@@ -1177,13 +1211,15 @@ app.get('/api/downloaded-files', (req, res) => {
             summary: {
                 totalFiles: files.length,
                 totalSizeMB: files.reduce((sum, f) => sum + f.sizeMB, 0).toFixed(2),
-                indexedForMatching: downloadedFilesIndex.size
+                indexedForMatching: downloadedFilesIndex.size,
+                forceRescanned: forceRescan
             },
             files: files
         };
         
         console.log(`[Download Sync] Returning ${files.length} files to frontend`);
         console.log(`[Download Sync] Summary: ${response.summary.totalFiles} files, ${response.summary.totalSizeMB} MB`);
+        console.log(`[Download Sync] ⚠️ IMPORTANT: If totalFiles=0 but you have files, check folder permissions!`);
         
         res.json(response);
         
