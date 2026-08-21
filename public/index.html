@@ -795,6 +795,40 @@
         .log-error { color: #f44336; }
         .log-progress { color: #e91e63; }
 
+        /* ⭐ NEW: Log Tabs */
+        .log-tabs {
+            display: flex;
+            gap: 5px;
+        }
+
+        .log-tab {
+            background: transparent;
+            border: 1px solid #555;
+            color: #888;
+            padding: 4px 10px;
+            font-size: 10px;
+            border-radius: 4px 4px 0 0;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+
+        .log-tab:hover {
+            background: #333;
+            color: #fff;
+        }
+
+        .log-tab.active {
+            background: #333;
+            color: #61dafb;
+            border-color: #61dafb;
+            border-bottom: 1px solid #333;
+        }
+
+        .log-content {
+            overflow-y: auto;
+            max-height: 180px;
+        }
+
         /* LIVE SYNC INDICATOR */
         .live-indicator {
             display: inline-flex;
@@ -1116,13 +1150,26 @@
                         </div>
                     </div>
 
-                    <!-- NEW: Download Log Panel -->
+                    <!-- NEW: Enhanced Log Panel with Tabs (Download + Server Terminal) -->
                     <div class="log-panel" id="logPanel">
                         <div class="log-header">
-                            <span>📋 Download Log (<span id="logCount">0</span> entries)</span>
-                            <button class="log-toggle" onclick="toggleLogPanel()">Toggle</button>
+                            <div class="log-tabs">
+                                <button class="log-tab active" onclick="switchLogTab('download')" id="tabDownload">📋 Download Log (<span id="logCount">0</span>)</button>
+                                <button class="log-tab" onclick="switchLogTab('server')" id="tabServer">🖥️ Server Terminal (<span id="serverLogCount">0</span>)</button>
+                            </div>
+                            <div style="display: flex; gap: 5px;">
+                                <button class="log-toggle" onclick="toggleLogPanel()" title="Collapse/Expand">Toggle</button>
+                                <button class="log-toggle" onclick="clearLogs()" title="Clear current log">Clear</button>
+                            </div>
                         </div>
-                        <div id="logEntries"></div>
+                        <!-- Download Log Panel -->
+                        <div id="downloadLogPanel" class="log-content">
+                            <div id="logEntries"></div>
+                        </div>
+                        <!-- Server Terminal Log Panel -->
+                        <div id="serverLogPanel" class="log-content" style="display: none;">
+                            <div id="serverLogEntries"></div>
+                        </div>
                     </div>
                 </div>
 
@@ -1245,17 +1292,18 @@
             
             downloadLog.push(entry);
             
-            // Keep only last 100 entries
-            if (downloadLog.length > 100) {
+            // Keep only last 200 entries (increased from 100)
+            if (downloadLog.length > 200) {
                 downloadLog.shift();
             }
             
             renderLog();
+            scrollToLogBottom();  // ⭐ FIXED: Ensure auto-scroll
             console.log(`[DownloadLog][${type.toUpperCase()}] ${message}`);
         }
 
         /**
-         * Render the log panel
+         * Render the log panel with auto-scroll fix
          */
         function renderLog() {
             const container = document.getElementById('logEntries');
@@ -1263,15 +1311,43 @@
             
             countEl.textContent = downloadLog.length;
             
-            container.innerHTML = downloadLog.slice(-20).map(entry => `
-                <div class="log-entry">
+            // Only update if changed (performance)
+            const newHtml = downloadLog.slice(-50).map(entry => `
+                <div class="log-entry" data-time="${entry.time}">
                     <span class="log-time">${entry.time}</span>
                     <span class="log-${entry.type}">${escapeHtml(entry.message)}</span>
                 </div>
             `).join('');
             
-            // Auto-scroll to bottom
-            container.scrollTop = container.scrollHeight;
+            if (container.innerHTML !== newHtml) {
+                container.innerHTML = newHtml;
+                
+                // ⭐ FIXED: Robust auto-scroll using multiple methods
+                requestAnimationFrame(() => {
+                    container.scrollTop = container.scrollHeight;
+                });
+                
+                // Fallback: Also scroll after a short delay
+                setTimeout(() => {
+                    container.scrollTop = container.scrollHeight;
+                }, 50);
+            }
+        }
+
+        /**
+         * Manually scroll to bottom (call after adding entries)
+         */
+        function scrollToLogBottom() {
+            const container = document.getElementById('logEntries');
+            if (container) {
+                // Immediate scroll
+                container.scrollTop = container.scrollHeight;
+                // Animated smooth scroll
+                container.scrollTo({
+                    top: container.scrollHeight,
+                    behavior: 'smooth'
+                });
+            }
         }
 
         /**
@@ -1280,6 +1356,137 @@
         function toggleLogPanel() {
             const panel = document.getElementById('logPanel');
             panel.classList.toggle('collapsed');
+        }
+
+        // ⭐ NEW: Log tab switching
+        let currentLogTab = 'download';
+        let serverLogInterval = null;
+        let lastServerLogTime = null;
+
+        function switchLogTab(tab) {
+            currentLogTab = tab;
+            
+            // Update tab buttons
+            document.getElementById('tabDownload').classList.toggle('active', tab === 'download');
+            document.getElementById('tabServer').classList.toggle('active', tab === 'server');
+            
+            // Show/hide panels
+            document.getElementById('downloadLogPanel').style.display = tab === 'download' ? 'block' : 'none';
+            document.getElementById('serverLogPanel').style.display = tab === 'server' ? 'block' : 'none';
+            
+            // If switching to server tab, fetch logs
+            if (tab === 'server') {
+                fetchServerLogs();
+                startServerLogPolling();
+            } else {
+                stopServerLogPolling();
+            }
+        }
+
+        // ⭐ NEW: Fetch server terminal logs
+        async function fetchServerLogs() {
+            try {
+                const params = new URLSearchParams({
+                    limit: '50',
+                    since: lastServerLogTime || ''
+                });
+                
+                const response = await fetch(`${API_BASE}/api/logs?${params}`);
+                const data = await response.json();
+                
+                if (data.success) {
+                    renderServerLogs(data.logs);
+                    
+                    // Update count
+                    document.getElementById('serverLogCount').textContent = data.total;
+                    
+                    // Update last fetch time for incremental updates
+                    if (data.logs.length > 0) {
+                        lastServerLogTime = data.logs[data.logs.length - 1].time;
+                    }
+                }
+            } catch (error) {
+                console.error('[Server Logs] Error fetching:', error);
+            }
+        }
+
+        // ⭐ NEW: Render server logs in the panel
+        function renderServerLogs(logs) {
+            const container = document.getElementById('serverLogEntries');
+            
+            if (!logs || logs.length === 0) {
+                container.innerHTML = '<div class="log-entry"><span class="log-info">Waiting for server logs...</span></div>';
+                return;
+            }
+            
+            // Append new logs (don't replace all to maintain scroll position)
+            const newHtml = logs.map(log => {
+                const time = new Date(log.time).toLocaleTimeString();
+                return `
+                    <div class="log-entry">
+                        <span class="log-time">${time}</span>
+                        <span class="log-${log.type}">${escapeHtml(log.message.substring(0, 200))}</span>
+                    </div>
+                `;
+            }).join('');
+            
+            // If this is first load or cleared, replace; otherwise append
+            if (container.children.length <= 1 || container.innerHTML.includes('Waiting for')) {
+                container.innerHTML = newHtml;
+            } else {
+                container.insertAdjacentHTML('beforeend', newHtml);
+            }
+            
+            // Auto-scroll to bottom
+            scrollToServerLogBottom();
+        }
+
+        // ⭐ NEW: Scroll server log to bottom
+        function scrollToServerLogBottom() {
+            const container = document.getElementById('serverLogEntries');
+            if (container) {
+                requestAnimationFrame(() => {
+                    container.scrollTop = container.scrollHeight;
+                });
+            }
+        }
+
+        // ⭐ NEW: Start polling for server logs
+        function startServerLogPolling() {
+            if (serverLogInterval) return;
+            
+            serverLogInterval = setInterval(() => {
+                if (currentLogTab === 'server') {
+                    fetchServerLogs();
+                }
+            }, 2000);  // Poll every 2 seconds when server tab is active
+        }
+
+        // ⭐ NEW: Stop polling for server logs
+        function stopServerLogPolling() {
+            if (serverLogInterval) {
+                clearInterval(serverLogInterval);
+                serverLogInterval = null;
+            }
+        }
+
+        // ⭐ NEW: Clear current log (download or server)
+        function clearLogs() {
+            if (currentLogTab === 'download') {
+                downloadLog = [];
+                renderLog();
+                addLogEntry('🗑️ Download log cleared', 'info');
+            } else {
+                // Clear server logs via API
+                fetch(`${API_BASE}/api/logs`, { method: 'DELETE' })
+                    .then(() => {
+                        document.getElementById('serverLogEntries').innerHTML = 
+                            '<div class="log-entry"><span class="log-info">🗑️ Server logs cleared</span></div>';
+                        document.getElementById('serverLogCount').textContent = '0';
+                        lastServerLogTime = null;
+                    })
+                    .catch(err => console.error('Error clearing logs:', err));
+            }
         }
 
         /**

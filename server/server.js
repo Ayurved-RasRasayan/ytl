@@ -391,6 +391,65 @@ try {
 // =============================================================================
 
 const savedChannels = new Map();
+
+// ⭐ NEW: Server-side log buffer for terminal output viewing
+const serverLogBuffer = [];
+const MAX_SERVER_LOGS = 500; // Keep last 500 log entries
+
+/**
+ * Capture console.log output to buffer for API access
+ */
+const originalConsoleLog = console.log;
+console.log = function(...args) {
+    // Call original console.log for terminal output
+    originalConsoleLog.apply(console, args);
+    
+    // Also store in our buffer
+    const timestamp = new Date().toISOString();
+    const message = args.map(arg => {
+        if (typeof arg === 'object') {
+            try {
+                return JSON.stringify(arg, null, 2);
+            } catch (e) {
+                return String(arg);
+            }
+        }
+        return String(arg);
+    }).join(' ');
+    
+    serverLogBuffer.push({
+        time: timestamp,
+        message: message,
+        type: message.includes('❌') || message.includes('ERROR') ? 'error' : 
+              message.includes('✅') || message.includes('success') ? 'success' :
+              message.includes('⚠️') || message.includes('warning') ? 'warning' :
+              message.includes('⬇️') || message.includes('▶️') ? 'progress' : 'info'
+    });
+    
+    // Keep only last MAX_SERVER_LOGS entries
+    if (serverLogBuffer.length > MAX_SERVER_LOGS) {
+        serverLogBuffer.shift();
+    }
+};
+
+// Also capture console.error
+const originalConsoleError = console.error;
+console.error = function(...args) {
+    originalConsoleError.apply(console, args);
+    
+    const timestamp = new Date().toISOString();
+    const message = args.map(arg => String(arg)).join(' ');
+    
+    serverLogBuffer.push({
+        time: timestamp,
+        message: '[ERROR] ' + message,
+        type: 'error'
+    });
+    
+    if (serverLogBuffer.length > MAX_SERVER_LOGS) {
+        serverLogBuffer.shift();
+    }
+};
 const downloadManager = {
     downloads: new Map(),
     
@@ -767,6 +826,45 @@ app.get('/api/health', (req, res) => {
         },
         ffmpeg: FFMPEG_AVAILABLE,
         cookies: isCookiesFileValid()
+    });
+});
+
+// ⭐ NEW: Server Logs Endpoint - Get terminal output for frontend display
+app.get('/api/logs', (req, res) => {
+    const { limit, type, since } = req.query;
+    
+    let logs = [...serverLogBuffer];
+    
+    // Filter by type if specified
+    if (type && type !== 'all') {
+        logs = logs.filter(log => log.type === type);
+    }
+    
+    // Filter by time if 'since' parameter provided
+    if (since) {
+        const sinceDate = new Date(since);
+        logs = logs.filter(log => new Date(log.time) >= sinceDate);
+    }
+    
+    // Apply limit
+    const logLimit = parseInt(limit) || 100;
+    logs = logs.slice(-logLimit);
+    
+    res.json({
+        success: true,
+        count: logs.length,
+        total: serverLogBuffer.length,
+        logs: logs
+    });
+});
+
+// ⭐ NEW: Clear server logs endpoint
+app.delete('/api/logs', (req, res) => {
+    const cleared = serverLogBuffer.length;
+    serverLogBuffer.length = 0;
+    res.json({
+        success: true,
+        message: `Cleared ${cleared} log entries`
     });
 });
 
