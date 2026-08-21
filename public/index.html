@@ -1847,6 +1847,7 @@
             addLogEntry('🔄 Starting sync with download folder...', 'info');
             
             try {
+                // ⭐ NEW: Send channelName for accurate folder-specific matching!
                 const response = await fetch(`${API_BASE}/api/downloaded-files/check`, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
@@ -1854,7 +1855,8 @@
                         videos: videos.map(v => ({
                             id: v.id || v.videoId,
                             title: v.title
-                        }))
+                        })),
+                        channelName: currentChannel?.name  // ⭐ SEND CHANNEL NAME FOR FOLDER MATCHING
                     })
                 });
                 
@@ -1877,6 +1879,8 @@
                             videos[index].fileSize = result.fileInfo.sizeMB;
                             videos[index].filePath = result.fileInfo.filename;
                             videos[index].downloadedAt = result.fileInfo.modified;
+                            // ⭐ NEW: Store channel folder info
+                            videos[index].channelFolder = result.fileInfo.channelFolder;
                         }
                     }
                 });
