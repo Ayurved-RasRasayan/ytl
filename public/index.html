@@ -1533,7 +1533,22 @@
                         </div>
                         <span class="sync-timer" id="syncTimer" style="display: none;">
                             <span class="sync-timer-icon">⏱️</span>
-                            Next refresh: <span id="syncCountdown">10:00</span>
+                            Next refresh: 
+                            <span id="syncCountdown">10:00</span>
+                            
+                            <!-- Refresh Interval Selector (Dropdown) -->
+                            <select id="syncRefreshInterval" onchange="changeSyncRefreshInterval(this.value)" 
+                                    title="Change auto-refresh interval"
+                                    style="margin-left: 8px; padding: 3px 6px; border: 1px solid #ddd; border-radius: 5px; font-size: 11px; background: white; cursor: pointer;">
+                                <option value="60">1 min</option>
+                                <option value="120">2 min</option>
+                                <option value="300">5 min</option>
+                                <option value="600" selected>10 min</option>
+                                <option value="900">15 min</option>
+                                <option value="1800">30 min</option>
+                                <option value="3600">1 hour</option>
+                                <option value="-1">Custom...</option>
+                            </select>
                         </span>
                     </div>
 
@@ -1944,7 +1959,7 @@
         // Store sync data globally
         let syncData = null;
         let syncTimerInterval = null;
-        const SYNC_INTERVAL = 10 * 60 * 1000; // 10 minutes in milliseconds
+        let syncRefreshSeconds = 10 * 60; // Default: 10 minutes (can be changed by user)
         
         // Current filter state: 'all', 'downloaded', or 'remaining'
         let currentSyncFilter = 'all';
@@ -2338,7 +2353,8 @@
                 clearInterval(syncTimerInterval);
             }
             
-            let remainingSeconds = 10 * 60; // 10 minutes
+            // Use user-configured refresh interval (default: 10 minutes)
+            let remainingSeconds = syncRefreshSeconds;
             
             // Show timer
             document.getElementById('syncTimer').style.display = 'flex';
@@ -2374,6 +2390,88 @@
             }
             document.getElementById('syncTimer').style.display = 'none';
         }
+
+        // ==================== REFRESH INTERVAL CONTROL ====================
+        
+        // Change sync refresh interval from dropdown
+        function changeSyncRefreshInterval(value) {
+            if (value === '-1') {
+                // Custom interval - show prompt
+                const customMinutes = prompt(
+                    'Enter custom refresh interval in minutes:\n' +
+                    '(e.g., 3 for 3 minutes, 0.5 for 30 seconds)\n\n' +
+                    'Minimum: 1 minute\nMaximum: 1440 minutes (24 hours)',
+                    '5'
+                );
+                
+                if (customMinutes === null || customMinutes === '') {
+                    // User cancelled - reset dropdown to current value
+                    document.getElementById('syncRefreshInterval').value = syncRefreshSeconds;
+                    return;
+                }
+                
+                const minutes = parseFloat(customMinutes);
+                
+                if (isNaN(minutes) || minutes < 1 || minutes > 1440) {
+                    showAlert('⚠️ Please enter a value between 1 and 1440 minutes', 'warning', 3000);
+                    document.getElementById('syncRefreshInterval').value = syncRefreshSeconds;
+                    return;
+                }
+                
+                // Set custom interval (convert to seconds)
+                syncRefreshSeconds = Math.round(minutes * 60);
+                
+                // Add custom option to dropdown if not exists
+                const select = document.getElementById('syncRefreshInterval');
+                let customOption = select.querySelector('option[value="' + syncRefreshSeconds + '"]');
+                if (!customOption) {
+                    customOption = document.createElement('option');
+                    customOption.value = syncRefreshSeconds;
+                    customOption.textContent = minutes % 1 === 0 
+                        ? `${minutes} min (custom)` 
+                        : `${minutes} min (${Math.round(minutes * 60)}s) (custom)`;
+                    select.appendChild(customOption);
+                }
+                select.value = syncRefreshSeconds;
+                
+            } else {
+                // Predefined interval selected
+                syncRefreshSeconds = parseInt(value);
+            }
+            
+            // Restart timer with new interval
+            if (syncTimerInterval || syncData) {
+                startSyncTimer();
+                addLogEntry(`⏱️ Refresh interval changed to ${formatSyncInterval(syncRefreshSeconds)}`, 'info');
+                showAlert(`✅ Refresh interval: ${formatSyncInterval(syncRefreshSeconds)}`, 'success', 2500);
+            }
+            
+            // Save preference to localStorage
+            localStorage.setItem('ytl_sync_refresh_seconds', syncRefreshSeconds);
+        }
+        
+        // Format seconds to human-readable string
+        function formatSyncInterval(seconds) {
+            if (seconds < 60) return `${seconds} seconds`;
+            if (seconds === 60) return '1 minute';
+            if (seconds < 3600) return `${seconds / 60} minutes`;
+            if (seconds === 3600) return '1 hour';
+            return `${seconds / 3600} hours`;
+        }
+        
+        // Load saved refresh interval on page load
+        function loadSavedSyncInterval() {
+            const saved = localStorage.getItem('ytl_sync_refresh_seconds');
+            if (saved) {
+                syncRefreshSeconds = parseInt(saved);
+                const select = document.getElementById('syncRefreshInterval');
+                if (select && select.querySelector(`option[value="${saved}"]`)) {
+                    select.value = saved;
+                }
+            }
+        }
+        
+        // ==================== END REFRESH INTERVAL CONTROL ====================
 
         // ==================== DOWNLOAD FUNCTIONS ====================
         
@@ -3134,6 +3232,7 @@
         // Initialize on page load
         document.addEventListener('DOMContentLoaded', () => {
             loadSettings();
+            loadSavedSyncInterval(); // Load saved refresh interval
             addLogEntry('🌐 Application initialized', 'info');
         });
 
