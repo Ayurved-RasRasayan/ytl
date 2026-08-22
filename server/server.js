@@ -3380,8 +3380,8 @@ app.use((req, res) => {
     console.log('   POST  /api/download/queue/clear');       // ← ⭐ Clear waiting queue!
     console.log('   POST  /api/download/:id/stop');        // ← ⭐ Stop/Pause (Blue)!
     console.log('   POST  /api/download/:id/cancel');      // ← ⭐ Cancel (Red)!
-    console.log('   DELETE /api/download/:id/remove';      // ← ⭐ Remove (Gray)!
-    console.log('   POST  /api/download/:id/force-stop';   // ← ⭐ Force Stop (Dark Red)!
+    console.log('   DELETE /api/download/:id/remove');     // ← ⭐ Remove (Gray)!
+    console.log('   POST  /api/download/:id/force-stop');  // ← ⭐ Force Stop (Dark Red)!
     console.log('   GET  /api/download/list');
     console.log('   GET  /api/download-queue');      // ← Queue status (frontend polls!)
     console.log('   DELETE /api/download-queue');    // ← Clear queue
