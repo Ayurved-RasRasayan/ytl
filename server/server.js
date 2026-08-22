@@ -56,6 +56,9 @@ function validateAuthConfig() {
 // =============================================================================
 // PATH CONVERSION - Convert Cygwin/Unix paths to Native OS paths
 // =============================================================================
+// ⭐ BUG FIX #1: Fixed incorrect path conversion on Linux/Mac systems
+// Old code incorrectly converted /home/user/path -> H:\ome\user\path
+// Now properly detects OS and only converts actual Cygwin/MSYS paths
 
 function toNativePath(unixStylePath) {
     // If already a native Windows path (starts with drive letter), return as-is
@@ -63,10 +66,18 @@ function toNativePath(unixStylePath) {
         return unixStylePath;
     }
     
-    // Convert Cygwin/MSYS paths (/c/Users/... -> C:\Users\...)
-    if (unixStylePath.startsWith('/') && unixStylePath.length >= 3 && 
-        /^[a-zA-Z]/.test(unixStylePath.charAt(1))) {
-        // Looks like /c/path or /d/path - convert to C:\path or D:\path
+    // ⭐ FIX: Only convert Cygwin/MSYS paths on Windows, not on Linux/Mac
+    // Cygwin/MSYS paths look like: /c/Users/... or /d/path (single letter after /)
+    // Unix paths like /home/user/... have multiple characters after the first /
+    const isWindows = process.platform === 'win32';
+    const isCygwinMsysPath = isWindows && 
+                              unixStylePath.startsWith('/') && 
+                              unixStylePath.length >= 3 && 
+                              /^[a-zA-Z]$/.test(unixStylePath.charAt(1)) && 
+                              (unixStylePath.charAt(2) === '/' || unixStylePath.charAt(2) == '\\');
+    
+    if (isCygwinMsysPath) {
+        // Convert /c/Users/... -> C:\Users\...
         const driveLetter = unixStylePath.charAt(1).toUpperCase();
         const restOfPath = unixStylePath.slice(2).replace(/\//g, '\\');
         const windowsPath = driveLetter + ':\\' + restOfPath;
@@ -78,7 +89,14 @@ function toNativePath(unixStylePath) {
         return windowsPath;
     }
     
-    // For other Unix-style paths, use path.resolve to get absolute path
+    // For Linux/Mac or other Unix-style paths, return as-is or resolve
+    // ⭐ FIX: Don't convert standard Unix paths on non-Windows systems
+    if (!isWindows) {
+        console.log('[Path Conversion] Non-Windows system, keeping Unix path:', unixStylePath);
+        return unixStylePath;
+    }
+    
+    // For other Unix-style paths on Windows, use path.resolve to get absolute path
     const resolved = path.resolve(unixStylePath);
     console.log('[Path Conversion] Resolved:', unixStylePath, '->', resolved);
     
@@ -613,6 +631,7 @@ function sanitizeFilename(text) {
  * @param {Array} videos - Array of video objects with title and duration
  * @returns {Array} Processed videos with displayTitle and downloadFilename added
  */
+// ⭐ BUG FIX #4: Enhanced duplicate handling for null/zero durations
 function processDuplicateTitles(videos) {
     if (!videos || videos.length === 0) {
         return [];
@@ -636,6 +655,8 @@ function processDuplicateTitles(videos) {
     
     // Step 2: Track which durations we've used for each title (to handle edge case of same title + same duration)
     const titleDurationUsage = {};
+    // ⭐ NEW: Track counter for duplicates without duration
+    const titleCounter = {};
     
     // Step 3: Process each video
     const processedVideos = videos.map((video, index) => {
@@ -652,8 +673,9 @@ function processDuplicateTitles(videos) {
         };
         
         // Only append duration if this is a duplicate title AND has duration available
-        if (isDuplicate && video.duration) {
-            const durationStr = formatDurationForDisplay(video.duration);
+        if (isDuplicate) {
+            const hasValidDuration = video.duration && video.duration > 0;
+            const durationStr = hasValidDuration ? formatDurationForDisplay(video.duration) : null;
             
             if (durationStr) {
                 // Create unique key for this title+duration combo
@@ -683,9 +705,24 @@ function processDuplicateTitles(videos) {
                 
                 console.log(`[Duplicate Titles] Video ${index}: "${originalTitle}" → "${processedVideo.displayTitle}"`);
             } else {
-                // Duplicate but no duration available - keep original (will use fallback -1, -2 etc.)
-                console.log(`[Duplicate Titles] Video ${index}: "${originalTitle}" (no duration available)`);
-                processedVideo.downloadFilename = `${sanitizeFilename(originalTitle)}.mp4`;
+                // ⭐ BUG FIX #4: Handle duplicates with no/null duration - use counter suffix
+                if (!titleCounter[normalizedTitle]) {
+                    titleCounter[normalizedTitle] = 1;
+                } else {
+                    titleCounter[normalizedTitle]++;
+                }
+                
+                const counter = titleCounter[normalizedTitle];
+                
+                // Only append counter for 2nd+ occurrence (first one stays clean)
+                if (counter > 1) {
+                    processedVideo.displayTitle = `${originalTitle} (#${counter})`;
+                    processedVideo.downloadFilename = `${sanitizeFilename(originalTitle)}-#${counter}.mp4`;
+                    console.log(`[Duplicate Titles] Video ${index}: "${originalTitle}" → "${processedVideo.displayTitle}" (no duration, using counter)`);
+                } else {
+                    processedVideo.downloadFilename = `${sanitizeFilename(originalTitle)}.mp4`;
+                    console.log(`[Duplicate Titles] Video ${index}: "${originalTitle}" (no duration, first occurrence kept clean)`);
+                }
             }
         } else {
             // Unique title - no changes needed
@@ -1138,17 +1175,31 @@ function fetchChannelInfo(channelId, channelUrl) {
                     lines.forEach((line, index) => {
                         const parts = line.split('\t');
                         if (parts.length >= 2) {
+                            const rawDuration = parts[2] ? parseInt(parts[2]) : null;
+                            const videoTitle = parts[1]?.trim() || 'Untitled';
+                            
                             const video = {
                                 id: parts[0]?.trim() || `video_${index}`,
-                                title: parts[1]?.trim() || 'Untitled',
-                                duration: parts[2] ? parseInt(parts[2]) : null,
+                                title: videoTitle,
+                                duration: rawDuration,
                                 views: parts[3] ? parseInt(parts[3]) : null,
                                 uploadDate: parts[4]?.trim() || null,
+                                // ⭐ BUG FIX #2 & #5: Track video type for better filtering
+                                isLiveStream: videoTitle.toLowerCase().includes('live'),
+                                isPremiere: videoTitle.toLowerCase().includes('premiere'),
                             };
                             
-                            // Filter out very short durations (likely shorts/ads)
-                            if (video.duration === null || video.duration >= 60) {
+                            // ⭐ BUG FIX #5: Improved duration filtering
+                            // - Filter out shorts (< 60 seconds)
+                            // - Filter out invalid durations (0, negative, NaN)
+                            // - Keep videos with null duration (some valid videos don't report duration in flat playlist)
+                            const isValidDuration = rawDuration === null || 
+                                                  (rawDuration >= 60 && rawDuration < 86400); // Max 24 hours
+                            
+                            if (isValidDuration) {
                                 videos.push(video);
+                            } else {
+                                console.log(`[fetchChannelInfo] Filtered out short/invalid duration video: ${videoTitle} (${rawDuration}s)`);
                             }
                         }
                     });
@@ -2018,6 +2069,23 @@ const downloadQueue = {
     },
     
     /**
+     * ⭐ BUG FIX #6: Remove a specific job from queue by download ID
+     * @param {string} downloadId - The download ID to remove from queue
+     * @returns {boolean} True if removed, false if not found
+     */
+    removeFromQueue(downloadId) {
+        const initialLength = this.queue.length;
+        this.queue = this.queue.filter(job => job.downloadId !== downloadId);
+        const removed = initialLength !== this.queue.length;
+        
+        if (removed) {
+            console.log(`[Download Queue] 🗑️ Removed job ${downloadId} from queue`);
+        }
+        
+        return removed;
+    },
+    
+    /**
      * SAFETY: Process next job if stuck (backup mechanism)
      */
     processStuckQueue() {
@@ -2113,6 +2181,15 @@ function executeDownloadWithFormat(downloadId, videoUrl, outputPath, formatInfo,
         console.log(`\n[Execute Download] Starting: ${videoTitle}`);
         console.log(`[Execute Download] Format: ${formatInfo.formatId} (${formatInfo.resolution})`);
         console.log(`[Execute Download] Needs merge: ${formatInfo.needsMerge}`);
+        
+        // ⭐ BUG FIX #3: Detect if this is a live stream archive/replay
+        const isLiveStreamVideo = videoTitle.toLowerCase().includes('live') || 
+                                   videoTitle.toLowerCase().includes('stream') ||
+                                   formatInfo.isLiveStream;
+        
+        if (isLiveStreamVideo) {
+            console.log(`[Execute Download] 🎴 DETECTED LIVE STREAM VIDEO - applying special flags`);
+        }
 
         // ⭐⭐⭐ CRITICAL FIX FOR WINDOWS PATH LENGTH LIMITATION ⭐⭐⭐
         // Problem: Windows has ~8191 char command-line limit
@@ -2142,8 +2219,30 @@ function executeDownloadWithFormat(downloadId, videoUrl, outputPath, formatInfo,
             '--no-playlist',
             '--embed-chapters',
             '--embed-metadata',
-            '--embed-thumbnail'
+            // ⭐⭐⭐ BUG FIX #8: REMOVED --embed-thumbnail ⭐⭐⭐
+            // PROBLEM: This caused "Postprocessing: Supported filetypes for thumbnail 
+            // embedding are: mp3, mkv/mka, ogg/opus/flac, m4a/mp4/m4v/mov" ERROR
+            // ROOT CAUSE: yt-dlp downloads in original format (e.g., webm for format 278),
+            // then tries to embed thumbnail BEFORE merging to mp4. Since webm is NOT in
+            // the supported formats list, it FAILS and the entire download aborts!
+            // SOLUTION: Remove --embed-thumbnail to allow download+merge to complete.
+            // Thumbnail embedding can be added back later with post-merge processing.
+            
+            // ⭐⭐⭐ WINDOWS 11 FIX: JavaScript Runtime for YouTube decryption ⭐⭐⭐
+            // yt-dlp on Windows requires a JS runtime (Node.js/Deno) to decrypt 
+            // YouTube's signature algorithms. Without this, downloads FAIL with:
+            // "No supported JavaScript runtime could be found"
+            '--js-runtimes', 'node'
         ];
+        
+        // ⭐ BUG FIX #3: Add special flags for live stream downloads
+        if (isLiveStreamVideo) {
+            // These flags help yt-dlp handle live stream archives better
+            args.push('--wait-for-video', '0.1');  // Don't wait for live streams
+            args.push('--no-check-certificates');   // Skip cert checks that may fail
+            args.push('--socket-timeout', '60');     // Longer timeout for large files
+            console.log(`[Execute Download] 🎴 Added live stream compatibility flags`);
+        }
         
         // Always add merge flag
         args.push('--merge-output-format', 'mp4');
