@@ -2383,6 +2383,320 @@ app.post('/api/download/batch', async (req, res) => {
 });
 
 // =============================================================================
+// SEQUENTIAL DOWNLOAD FEATURE (One at a time - True Sequential)
+// =============================================================================
+
+// Global sequential download state
+let sequentialQueue = {
+    isRunning: false,
+    isPaused: false,
+    currentIndex: 0,
+    totalVideos: 0,
+    videos: [],
+    results: [],
+    batchId: null,
+    startTime: null,
+    cancelRequested: false
+};
+
+/**
+ * POST /api/download/sequential - Start sequential download (one at a time)
+ * Downloads videos ONE BY ONE, waiting for each to complete before starting next
+ */
+app.post('/api/download/sequential', async (req, res) => {
+    console.log('\n' + '='.repeat(80));
+    console.log('📥 [Sequential Download] POST /api/download/sequential');
+    console.log('='.repeat(80));
+
+    try {
+        const { videos, format, quality, channelId, channelName } = req.body;
+
+        if (!videos || !Array.isArray(videos) || videos.length === 0) {
+            return res.status(400).json({
+                success: false,
+                error: 'Videos array required'
+            });
+        }
+
+        // Check if already running
+        if (sequentialQueue.isRunning && !sequentialQueue.cancelRequested) {
+            return res.status(409).json({
+                success: false,
+                error: 'Sequential download already in progress',
+                currentStatus: {
+                    currentIndex: sequentialQueue.currentIndex,
+                    totalVideos: sequentialQueue.totalVideos,
+                    currentVideo: sequentialQueue.videos[sequentialQueue.currentIndex]?.title || 'N/A'
+                }
+            });
+        }
+
+        // Initialize sequential queue
+        sequentialQueue = {
+            isRunning: true,
+            isPaused: false,
+            currentIndex: 0,
+            totalVideos: videos.length,
+            videos: videos.map((v, idx) => ({
+                ...v,
+                index: idx,
+                videoId: v.id || v.videoId,
+                title: v.title || `Video ${idx + 1}`,
+                url: v.url || `https://www.youtube.com/watch?v=${v.id || v.videoId}`
+            })),
+            results: [],
+            batchId: uuidv4(),
+            startTime: new Date(),
+            cancelRequested: false
+        };
+
+        const outputDir = channelName ? getChannelDownloadDir(channelName) : DOWNLOADS_DIR;
+
+        console.log(`[Sequential Download] 🎯 Starting SEQUENTIAL download of ${videos.length} videos`);
+        console.log(`[Sequential Download] Mode: One at a time (true sequential)`);
+        console.log(`[Sequential Download] Output directory: ${outputDir}`);
+        console.log(`[Sequential Download] Batch ID: ${sequentialQueue.batchId}`);
+
+        // Respond immediately with queue status
+        res.json({
+            success: true,
+            message: `Sequential download started: ${videos.length} videos will download one at a time`,
+            mode: 'sequential',
+            batchId: sequentialQueue.batchId,
+            totalVideos: videos.length,
+            estimatedTime: `${videos.length * 5}-${videos.length * 15} minutes` // Rough estimate
+        });
+
+        // Start processing sequentially in background
+        processSequentialQueue(outputDir, format, quality, channelId);
+
+    } catch (error) {
+        console.error('[Sequential Download] ❌ Error:', error.message);
+        // Only send error if we haven't sent response yet
+        if (!res.headersSent) {
+            res.status(500).json({
+                success: false,
+                error: 'Sequential download failed: ' + error.message
+            });
+        }
+    }
+});
+
+/**
+ * Core sequential processing function
+ * Processes videos ONE AT A TIME, awaiting each completion before next
+ */
+async function processSequentialQueue(outputDir, format, quality, channelId) {
+    console.log('\n[Sequential Queue] 🚀 Starting sequential processing...');
+    
+    while (sequentialQueue.currentIndex < sequentialQueue.totalVideos) {
+        // Check for cancellation
+        if (sequentialQueue.cancelRequested) {
+            console.log('[Sequential Queue] ⛔ Cancellation requested, stopping...');
+            break;
+        }
+
+        // Check for pause
+        while (sequentialQueue.isPaused && !sequentialQueue.cancelRequested) {
+            console.log('[Sequential Queue] ⏸️ Paused, waiting...');
+            await new Promise(resolve => setTimeout(resolve, 1000));
+        }
+        
+        if (sequentialQueue.cancelRequested) break;
+
+        const video = sequentialQueue.videos[sequentialQueue.currentIndex];
+        const index = sequentialQueue.currentIndex + 1;
+        
+        console.log(`\n${'='.repeat(80)}`);
+        console.log(`[Sequential Queue] 📥 Processing [${index}/${sequentialQueue.totalVideos}]: ${video.title}`);
+        console.log(`${'='.repeat(80)}`);
+
+        try {
+            // Create download job for this video
+            const downloadId = uuidv4();
+            const safeTitle = video.title.replace(/[^a-zA-Z0-9._-]/g, '_').substring(0, 100);
+            let outputFilename = `${safeTitle}.mp4`;
+            
+            // Apply duplicate filename handler
+            outputFilename = getUniqueFilename(outputDir, outputFilename);
+            
+            const outputPath = path.join(outputDir, outputFilename);
+
+            // Add to download manager
+            const download = downloadManager.add({
+                id: downloadId,
+                url: video.url,
+                videoId: video.videoId,
+                channelId: channelId,
+                title: video.title,
+                filename: outputFilename,
+                outputPath: outputPath,
+                format: format || 'best',
+                quality: quality || 'lowest',
+                status: 'downloading',  // Set to downloading immediately (it's the only active one)
+                progress: 0,
+                createdAt: new Date().toISOString()
+            });
+
+            console.log(`[Sequential Queue] Job created: ${downloadId}`);
+            console.log(`[Sequential Queue] Output: ${outputPath}`);
+
+            // ⭐ KEY: AWAIT this download to complete before continuing
+            await executeSmartDownload(downloadId, video.url, outputPath, video.title);
+
+            // Mark as completed in results
+            sequentialQueue.results.push({
+                index: sequentialQueue.currentIndex,
+                videoId: video.videoId,
+                title: video.title,
+                status: 'completed',
+                jobId: downloadId,
+                filename: outputFilename,
+                completedAt: new Date().toISOString()
+            });
+
+            console.log(`[Sequential Queue] ✅ Video [${index}] COMPLETED successfully`);
+
+        } catch (error) {
+            console.error(`[Sequential Queue] ❌ Video [${index}] FAILED:`, error.message);
+            
+            // Mark as failed but CONTINUE to next video
+            sequentialQueue.results.push({
+                index: sequentialQueue.currentIndex,
+                videoId: video.videoId,
+                title: video.title,
+                status: 'failed',
+                error: error.message,
+                failedAt: new Date().toISOString()
+            });
+
+            // Small delay before next attempt (avoid hammering YouTube if there's an issue)
+            await new Promise(resolve => setTimeout(resolve, 3000));
+        }
+
+        // Move to next video
+        sequentialQueue.currentIndex++;
+
+        // Small delay between downloads (polite to YouTube)
+        if (sequentialQueue.currentIndex < sequentialQueue.totalVideos) {
+            console.log('[Sequential Queue] ⏳ Waiting 2 seconds before next download...');
+            await new Promise(resolve => setTimeout(resolve, 2000));
+        }
+    }
+
+    // Sequential queue finished
+    sequentialQueue.isRunning = false;
+    const endTime = new Date();
+    const duration = Math.round((endTime - sequentialQueue.startTime) / 1000);
+    
+    const successCount = sequentialQueue.results.filter(r => r.status === 'completed').length;
+    const failCount = sequentialQueue.results.filter(r => r.status === 'failed').length;
+
+    console.log(`\n${'='.repeat(80)}`);
+    console.log('[Sequential Queue] 🎉 SEQUENTIAL DOWNLOAD COMPLETE!');
+    console.log('='.repeat(80));
+    console.log(`[Sequential Queue] Total time: ${Math.floor(duration / 60)}m ${duration % 60}s`);
+    console.log(`[Sequential Queue] Successful: ${successCount}/${sequentialQueue.totalVideos}`);
+    console.log(`[Sequential Queue] Failed: ${failCount}/${sequentialQueue.totalVideos}`);
+    console.log(`[Sequential Queue] Cancelled: ${sequentialQueue.cancelRequested}`);
+}
+
+/**
+ * GET /api/download/sequential/status - Get sequential download progress
+ */
+app.get('/api/download/sequential/status', (req, res) => {
+    const currentVideo = sequentialQueue.videos[sequentialQueue.currentIndex] || null;
+    const activeDownload = currentVideo ? 
+        downloadManager.get(d => d.videoId === currentVideo.videoId && d.status === 'downloading') : null;
+
+    res.json({
+        success: true,
+        isRunning: sequentialQueue.isRunning,
+        isPaused: sequentialQueue.isPaused,
+        batchId: sequentialQueue.batchId,
+        progress: {
+            current: sequentialQueue.currentIndex,
+            total: sequentialQueue.totalVideos,
+            percent: sequentialQueue.totalVideos > 0 ? 
+                Math.round((sequentialQueue.currentIndex / sequentialQueue.totalVideos) * 100) : 0
+        },
+        currentVideo: currentVideo ? {
+            title: currentVideo.title,
+            videoId: currentVideo.videoId,
+            index: sequentialQueue.currentIndex + 1
+        } : null,
+        currentProgress: activeDownload ? {
+            jobId: activeDownload.id,
+            percent: activeDownload.progress || 0,
+            speed: activeDownload.speed || null,
+            status: activeDownload.status
+        } : null,
+        results: sequentialQueue.results,
+        cancelled: sequentialQueue.cancelRequested,
+        elapsedTime: sequentialQueue.startTime ? 
+            Math.round((new Date() - sequentialQueue.startTime) / 1000) : 0
+    });
+});
+
+/**
+ * POST /api/download/sequential/pause - Pause/resume sequential download
+ */
+app.post('/api/download/sequential/pause', (req, res) => {
+    const { pause } = req.body; // true to pause, false to resume
+    
+    if (!sequentialQueue.isRunning) {
+        return res.status(400).json({
+            success: false,
+            error: 'No sequential download in progress'
+        });
+    }
+
+    sequentialQueue.isPaused = pause === true;
+    
+    console.log(`[Sequential Download] ${pause ? '⏸️ PAUSED' : '▶️ RESUMED'}`);
+    
+    res.json({
+        success: true,
+        isPaused: sequentialQueue.isPaused,
+        message: pause ? 'Sequential download paused' : 'Sequential download resumed'
+    });
+});
+
+/**
+ * POST /api/download/sequential/cancel - Cancel sequential download
+ */
+app.post('/api/download/sequential/cancel', (req, res) => {
+    if (!sequentialQueue.isRunning) {
+        return res.status(400).json({
+            success: false,
+            error: 'No sequential download in progress'
+        });
+    }
+
+    sequentialQueue.cancelRequested = true;
+    
+    // Also cancel any currently active download
+    const currentVideo = sequentialQueue.videos[sequentialQueue.currentIndex];
+    if (currentVideo) {
+        const activeDownload = downloadManager.get(d => 
+            d.videoId === currentVideo.videoId && d.status === 'downloading'
+        );
+        if (activeDownload) {
+            downloadManager.update(activeDownload.id, { status: 'cancelled' });
+        }
+    }
+    
+    console.log('[Sequential Download] ❌ CANCELLATION REQUESTED');
+    
+    res.json({
+        success: true,
+        message: 'Cancellation requested. Current download will finish, then stop.',
+        resultsSoFar: sequentialQueue.results,
+        nextIndex: sequentialQueue.currentIndex
+    });
+});
+
+// =============================================================================
 // SYSTEM STATUS ENDPOINT
 // =============================================================================
 
@@ -2498,7 +2812,11 @@ app.use((req, res) => {
     console.log('   GET  /api/download/:id');       // Legacy status
     console.log('   POST  /api/download/:id/cancel');
     console.log('   GET  /api/downloads');
-    console.log('   POST  /api/download/batch');     // ← Batch with format analysis!
+    console.log('   POST  /api/download/batch');     // ← Batch download (parallel)!');
+    console.log('   POST  /api/download/sequential'); // ← Sequential download (ONE AT A TIME)!
+    console.log('   GET  /api/download/sequential/status');  // ← Sequential progress!
+    console.log('   POST  /api/download/sequential/pause');  // ← Pause/Resume!
+    console.log('   POST  /api/download/sequential/cancel'); // ← Cancel sequential!
     console.log('   GET  /api/download/list');
     console.log('   GET  /api/download-queue');      // ← Queue status (frontend polls!)
     console.log('   DELETE /api/download-queue');    // ← Clear queue
@@ -2521,7 +2839,10 @@ app.use((req, res) => {
             '/api/download',              // ← MAIN DOWNLOAD!
             '/api/download/start',
             '/api/download/batch',         // ← BATCH DOWNLOAD!
-            '/api/download/start',
+            '/api/download/sequential',    // ← SEQUENTIAL DOWNLOAD!
+            '/api/download/sequential/status',  // ← Sequential progress
+            '/api/download/sequential/pause',  // ← Pause/Resume
+            '/api/download/sequential/cancel', // ← Cancel sequential
             '/api/downloads',
             '/api/download-queue',
             '/api/system/status',
@@ -2580,7 +2901,8 @@ app.listen(PORT, () => {
     console.log('║  PUT    /api/settings          Update settings                 ║');
     console.log('║  POST   /api/channels          Load channel videos             ║');
     console.log('║  POST   /api/download           Download single video           ║');
-    console.log('║  POST   /api/download/batch     Batch download (sequential)     ║');
+    console.log('║  POST   /api/download/batch     Batch download (parallel)        ║');
+    console.log('║  POST   /api/download/sequential Sequential (one at a time)      ║');
     console.log('║  GET    /api/files              List all downloaded files        ║');
     console.log('║  GET    /api/download-file/:id  Download file by ID            ║');
     console.log('║  GET    /api/channels/:id/stats Video count comparison (NEW!)  ║');
@@ -2591,5 +2913,6 @@ app.listen(PORT, () => {
     console.log('   - ✅ Rate limiting (5 login attempts per 15 min)');
     console.log('   - ✅ Video count comparison (YouTube vs Downloaded)');
     console.log('   - ✅ Duplicate filename handling');
+    console.log('   - ✅ Sequential download (one at a time)');
     console.log('');
 });
