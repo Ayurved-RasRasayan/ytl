@@ -1741,23 +1741,44 @@
             if (container.innerHTML !== newHtml) {
                 container.innerHTML = newHtml;
                 
-                // INSTANT scroll to bottom - no animation, no delay
+                // INSTANT scroll BOTH containers to bottom
+                // Inner scroll (#logEntries)
                 container.scrollTop = container.scrollHeight;
+                
+                // Outer scroll (#downloadLogPanel)
+                const outerContainer = document.getElementById('downloadLogPanel');
+                if (outerContainer) {
+                    outerContainer.scrollTop = outerContainer.scrollHeight;
+                }
             }
         }
 
         function scrollToLogBottom() {
-            // Scroll Download Log to bottom (INSTANT)
-            const container = document.getElementById('logEntries');
-            if (container) {
-                container.scrollTop = container.scrollHeight;
+            // ========== DOWNLOAD LOG: Scroll BOTH containers ==========
+            // Inner scroll (#logEntries)
+            const downloadInner = document.getElementById('logEntries');
+            if (downloadInner) {
+                downloadInner.scrollTop = downloadInner.scrollHeight;
             }
             
-            // Also scroll Server Log to bottom if it's the active tab (INSTANT)
+            // Outer scroll (#downloadLogPanel)
+            const downloadOuter = document.getElementById('downloadLogPanel');
+            if (downloadOuter) {
+                downloadOuter.scrollTop = downloadOuter.scrollHeight;
+            }
+            
+            // ========== SERVER TERMINAL: Scroll BOTH containers (if active) ==========
             if (currentLogTab === 'server') {
-                const serverContainer = document.getElementById('serverLogEntries');
-                if (serverContainer) {
-                    serverContainer.scrollTop = serverContainer.scrollHeight;
+                // Inner scroll (#serverLogEntries)
+                const serverInner = document.getElementById('serverLogEntries');
+                if (serverInner) {
+                    serverInner.scrollTop = serverInner.scrollHeight;
+                }
+                
+                // Outer scroll (#serverLogPanel)
+                const serverOuter = document.getElementById('serverLogPanel');
+                if (serverOuter) {
+                    serverOuter.scrollTop = serverOuter.scrollHeight;
                 }
             }
         }
@@ -1836,10 +1857,17 @@
                 container.insertAdjacentHTML('beforeend', newHtml);
             }
             
-            // INSTANT auto-scroll to latest server log
-            const serverContainer = document.getElementById('serverLogEntries');
-            if (serverContainer) {
-                serverContainer.scrollTop = serverContainer.scrollHeight;
+            // INSTANT auto-scroll BOTH server terminal containers to latest log
+            // Inner scroll (#serverLogEntries)
+            const serverInner = document.getElementById('serverLogEntries');
+            if (serverInner) {
+                serverInner.scrollTop = serverInner.scrollHeight;
+            }
+            
+            // Outer scroll (#serverLogPanel)
+            const serverOuter = document.getElementById('serverLogPanel');
+            if (serverOuter) {
+                serverOuter.scrollTop = serverOuter.scrollHeight;
             }
         }
 
