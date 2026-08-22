@@ -1741,24 +1741,24 @@
             if (container.innerHTML !== newHtml) {
                 container.innerHTML = newHtml;
                 
-                requestAnimationFrame(() => {
-                    container.scrollTop = container.scrollHeight;
-                });
-                
-                setTimeout(() => {
-                    container.scrollTop = container.scrollHeight;
-                }, 50);
+                // INSTANT scroll to bottom - no animation, no delay
+                container.scrollTop = container.scrollHeight;
             }
         }
 
         function scrollToLogBottom() {
+            // Scroll Download Log to bottom (INSTANT)
             const container = document.getElementById('logEntries');
             if (container) {
                 container.scrollTop = container.scrollHeight;
-                container.scrollTo({
-                    top: container.scrollHeight,
-                    behavior: 'smooth'
-                });
+            }
+            
+            // Also scroll Server Log to bottom if it's the active tab (INSTANT)
+            if (currentLogTab === 'server') {
+                const serverContainer = document.getElementById('serverLogEntries');
+                if (serverContainer) {
+                    serverContainer.scrollTop = serverContainer.scrollHeight;
+                }
             }
         }
 
@@ -1836,11 +1836,10 @@
                 container.insertAdjacentHTML('beforeend', newHtml);
             }
             
+            // INSTANT auto-scroll to latest server log
             const serverContainer = document.getElementById('serverLogEntries');
             if (serverContainer) {
-                requestAnimationFrame(() => {
-                    serverContainer.scrollTop = serverContainer.scrollHeight;
-                });
+                serverContainer.scrollTop = serverContainer.scrollHeight;
             }
         }
 
