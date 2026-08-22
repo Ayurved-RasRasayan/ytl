@@ -1818,32 +1818,38 @@ function executeDownloadWithFormat(downloadId, videoUrl, outputPath, formatInfo,
         console.log(`[Execute Download] Format: ${formatInfo.formatId} (${formatInfo.resolution})`);
         console.log(`[Execute Download] Needs merge: ${formatInfo.needsMerge}`);
 
-        // ⭐ ROBUST FIX: ALWAYS use template output (never force fixed filename!)
-        // This prevents "Fixed output name but more than one file to download" error
-        // yt-dlp needs flexibility to handle temp files during merge operations
+        // ⭐⭐⭐ CRITICAL FIX FOR WINDOWS PATH LENGTH LIMITATION ⭐⭐⭐
+        // Problem: Windows has ~8191 char command-line limit
+        // Long paths like "C:\Users\Jackle\Downloads\YouTube-Downloader\HikmataurkimiaGhari\Very Long Title.mp4"
+        // get TRUNCATED when passed to yt-dlp, causing "Fixed output name" error!
+        //
+        // Solution: Download to SHORT temp filename first, then RENAME to desired name
+        // This bypasses Windows path length limits completely!
+        
         const outputDir = path.dirname(outputPath);
-        const baseFilename = path.basename(outputPath, '.mp4');  // without extension
+        const baseFilename = path.basename(outputPath, '.mp4');
         
-        // ALWAYS use template format - works for both merged and non-merged downloads
-        const outputTemplate = path.join(outputDir, `${baseFilename}.%(ext)s`);
+        // Generate a SHORT temporary filename for the actual download
+        // Format: ytl_[downloadId].mp4 (always short, never truncated!)
+        const tempFilename = `ytl_${downloadId}.mp4`;
+        const tempPath = path.join(outputDir, tempFilename);
         
-        console.log(`[Execute Download] 🔄 ALWAYS using template mode (prevents merge errors)`);
+        console.log(`[Execute Download] 🛡️ WINDOWS PATH FIX ACTIVE`);
+        console.log(`[Execute Download] Temp file (short): ${tempFilename}`);
+        console.log(`[Execute Download] Final file (long):   ${path.basename(outputPath)}`);
         console.log(`[Execute Download] Output dir: ${outputDir}`);
-        console.log(`[Execute Download] Output template: ${outputTemplate}`);
-        console.log(`[Execute Download] Expected final file: ${outputPath}`);
 
-        // Build arguments array for spawn (safer than shell command)
+        // Build arguments - use SHORT temp path to avoid truncation!
         const args = [
             '-f', formatInfo.formatId,
-            '-o', outputTemplate,
+            '-o', tempPath,  // ⭐ KEY: Use SHORT path, not long one!
             '--no-playlist',
             '--embed-chapters',
             '--embed-metadata',
             '--embed-thumbnail'
         ];
         
-        // Always add merge flag - if merging isn't needed, yt-dlp just ignores it
-        // This ensures we NEVER get "Fixed output name" error
+        // Always add merge flag
         args.push('--merge-output-format', 'mp4');
         
         if (FFMPEG_AVAILABLE) {
@@ -1854,12 +1860,12 @@ function executeDownloadWithFormat(downloadId, videoUrl, outputPath, formatInfo,
         
         args.push(videoUrl);
 
-        console.log(`[Execute Download] Full command: yt-dlp ${args.join(' ').substring(0, 200)}...`);
+        console.log(`[Execute Download] Command: yt-dlp ${args.join(' ').substring(0, 200)}...`);
 
         const ytDlpProcess = spawn('yt-dlp', args, {
             stdio: ['pipe', 'pipe', 'pipe'],
             shell: true,
-            cwd: outputDir  // Work in output directory for safer file operations
+            cwd: outputDir
         });
 
         let stdoutData = '';
@@ -1891,71 +1897,92 @@ function executeDownloadWithFormat(downloadId, videoUrl, outputPath, formatInfo,
             console.log(`[Execute Download] Process exited with code: ${code}`);
             
             if (code === 0) {
-                // ⭐ ENHANCED: Search for output file in multiple possible locations/names
-                const possiblePaths = [
-                    outputPath,                                    // Original expected path
-                    outputPath.replace('.mp4', '.webm'),           // WebM fallback
-                    outputPath.replace('.mp4', '.mkv'),             // MKV fallback
-                    path.join(outputDir, baseFilename + '.mp4'),   // Direct name in output dir
-                    path.join(outputDir, baseFilename + '.webm'),
-                    path.join(outputDir, baseFilename + '.mkv')
-                ];
-                
-                // Also try to find any recently modified video file in output dir
+                // ⭐⭐⭐ POST-DOWNLOAD: Rename from short temp name to desired long name ⭐⭐⭐
                 try {
-                    if (fs.existsSync(outputDir)) {
-                        const files = fs.readdirSync(outputDir)
-                            .filter(f => ['.mp4', '.webm', '.mkv'].includes(path.extname(f).toLowerCase()))
-                            .map(f => ({
-                                path: path.join(outputDir, f),
-                                mtime: fs.statSync(path.join(outputDir, f)).mtime.getTime()
-                            }))
-                            .sort((a, b) => b.mtime - a.mtime);  // Most recent first
-                        
-                        // Add the most recent file as highest priority
-                        if (files.length > 0) {
-                            possiblePaths.unshift(files[0].path);
-                        }
-                    }
-                } catch (e) {
-                    console.warn('[Execute Download] Warning: Could not scan output directory:', e.message);
-                }
-                
-                // Find which file actually exists
-                let foundPath = null;
-                for (const checkPath of possiblePaths) {
-                    if (fs.existsSync(checkPath)) {
-                        const stats = fs.statSync(checkPath);
-                        // File should be reasonably sized (> 1KB) and recently modified
-                        if (stats.size > 1024) {
-                            foundPath = checkPath;
+                    // Check what file was actually created (might be .webm or .mkv if merge changed format)
+                    let actualFile = null;
+                    const possibleExtensions = ['.mp4', '.webm', '.mkv'];
+                    
+                    for (const ext of possibleExtensions) {
+                        const checkPath = path.join(outputDir, `ytl_${downloadId}${ext}`);
+                        if (fs.existsSync(checkPath)) {
+                            actualFile = checkPath;
                             break;
                         }
                     }
+                    
+                    if (!actualFile) {
+                        // File might have been saved with a different name, search for recent files
+                        console.log('[Execute Download] Temp file not found, searching for downloaded file...');
+                        
+                        // Find most recently modified video file in output dir
+                        if (fs.existsSync(outputDir)) {
+                            const files = fs.readdirSync(outputDir)
+                                .filter(f => ['.mp4', '.webm', '.mkv'].includes(path.extname(f).toLowerCase()))
+                                .map(f => ({
+                                    path: path.join(outputDir, f),
+                                    mtime: fs.statSync(path.join(outputDir, f)).mtime.getTime()
+                                }))
+                                .sort((a, b) => b.mtime - a.mtime);  // Most recent first
+                            
+                            if (files.length > 0 && files[0].mtime > Date.now() - 3600000) { // Within last hour
+                                actualFile = files[0].path;
+                                console.log(`[Execute Download] Found recent file: ${path.basename(actualFile)}`);
+                            }
+                        }
+                    }
+                    
+                    if (!actualFile || !fs.existsSync(actualFile)) {
+                        reject(new Error('Download completed but output file not found'));
+                        return;
+                    }
+                    
+                    const stats = fs.statSync(actualFile);
+                    console.log(`[Execute Download] ✅ Download complete!`);
+                    console.log(`[Execute Download] Downloaded: ${path.basename(actualFile)} (${(stats.size / 1024 / 1024).toFixed(2)} MB)`);
+                    
+                    // Now RENAME to the desired long filename
+                    // If target file already exists (duplicate), our getUniqueFilename should have handled it
+                    // But double-check and add suffix if needed
+                    let finalPath = outputPath;
+                    if (fs.existsSync(finalPath)) {
+                        // Edge case: file somehow exists, add counter
+                        let counter = 1;
+                        while (fs.existsSync(finalPath)) {
+                            const ext = path.extname(outputPath);
+                            const base = path.basename(outputPath, ext);
+                            finalPath = path.join(outputDir, `${base}-${counter}${ext}`);
+                            counter++;
+                        }
+                    }
+                    
+                    // Perform the rename
+                    fs.renameSync(actualFile, finalPath);
+                    
+                    console.log(`[Execute Download] 📝 Renamed to: ${path.basename(finalPath)}`);
+                    resolve({ 
+                        success: true, 
+                        path: finalPath, 
+                        size: stats.size,
+                        renamedFrom: path.basename(actualFile)
+                    });
+                    
+                } catch (renameErr) {
+                    console.error(`[Execute Download] ❌ Rename failed:`, renameErr.message);
+                    // If rename fails, return the temp file path instead of failing
+                    const tempFile = path.join(outputDir, `ytl_${downloadId}.mp4`);
+                    if (fs.existsSync(tempFile)) {
+                        resolve({ 
+                            success: true, 
+                            path: tempFile, 
+                            size: fs.statSync(tempFile).size,
+                            warning: 'Could not rename to desired filename, using temp name'
+                        });
+                    } else {
+                        reject(new Error('Download completed but file rename failed: ' + renameErr.message));
+                    }
                 }
                 
-                if (foundPath) {
-                    const stats = fs.statSync(foundPath);
-                    console.log(`[Execute Download] ✅ Success! File: ${path.basename(foundPath)}`);
-                    console.log(`[Execute Download] ✅ Size: ${(stats.size / 1024 / 1024).toFixed(2)} MB`);
-                    
-                    // If file ended up at different path than expected, rename it
-                    if (foundPath !== outputPath && fs.existsSync(outputPath) === false) {
-                        try {
-                            fs.renameSync(foundPath, outputPath);
-                            console.log(`[Execute Download] 📝 Renamed to: ${path.basename(outputPath)}`);
-                            resolve({ success: true, path: outputPath, size: stats.size });
-                        } catch (renameErr) {
-                            // Rename failed, but download succeeded - return actual path
-                            console.log(`[Execute Download] ⚠️ Rename failed, using original name: ${path.basename(foundPath)}`);
-                            resolve({ success: true, path: foundPath, size: stats.size });
-                        }
-                    } else {
-                        resolve({ success: true, path: foundPath, size: stats.size });
-                    }
-                } else {
-                    reject(new Error('Download completed but output file not found'));
-                }
             } else {
                 const errorMsg = stderrData.substring(stderrData.length - 500);
                 console.error(`[Execute Download] ❌ Failed: ${errorMsg}`);
