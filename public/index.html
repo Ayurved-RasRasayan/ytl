@@ -514,9 +514,117 @@
             flex-wrap: wrap;
         }
 
-        /* Download Queue */
+        /* Queue Items - Single Line Design */
         .queue-section {
             margin-top: 15px;
+        }
+        
+        .queue-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            flex-wrap: wrap;
+            gap: 8px;
+        }
+        
+        .queue-stats {
+            font-size: 0.8em;
+            color: #666;
+            display: flex;
+            gap: 12px;
+            align-items: center;
+        }
+        
+        .queue-stat {
+            display: flex;
+            align-items: center;
+            gap: 4px;
+        }
+        
+        .queue-stat.active-count {
+            color: #388e3c;
+            font-weight: 600;
+        }
+        
+        .queue-stat.waiting-count {
+            color: #f57c00;
+        }
+        
+        .queue-item {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 8px 12px;
+            border: 1px solid #eee;
+            border-radius: 6px;
+            margin-bottom: 5px;
+            background: #fafafa;
+            flex-wrap: nowrap;
+            white-space: nowrap;
+            overflow: hidden;
+        }
+        
+        .queue-item.downloading {
+            background: linear-gradient(90deg, #e8f5e9 0%, #fff 100%);
+            border-left: 3px solid #388e3c;
+        }
+        
+        .queue-item.waiting {
+            background: linear-gradient(90deg, #fff3e0 0%, #fff 100%);
+            border-left: 3px solid #f57c00;
+        }
+        
+        .queue-item-info {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            min-width: 0;
+            flex: 1;
+        }
+        
+        .queue-position {
+            font-size: 0.75em;
+            font-weight: 700;
+            color: #999;
+            background: #f0f0f0;
+            padding: 2px 6px;
+            border-radius: 4px;
+            min-width: 24px;
+            text-align: center;
+        }
+        
+        .queue-item-title {
+            font-size: 0.85em;
+            font-weight: 500;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            max-width: 280px;
+        }
+        
+        .queue-item-status {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            font-size: 0.8em;
+            white-space: nowrap;
+        }
+        
+        .status-badge.queue-active {
+            background: #388e3c;
+            color: white;
+            padding: 2px 8px;
+            border-radius: 10px;
+            font-size: 0.75em;
+            font-weight: 600;
+        }
+        
+        .status-badge.queue-waiting {
+            background: #f57c00;
+            color: white;
+            padding: 2px 8px;
+            border-radius: 10px;
+            font-size: 0.75em;
+            font-weight: 600;
         }
 
         /* Settings Panel */
@@ -618,18 +726,6 @@
             background: #d1ecf1;
             color: #0c5460;
             border: 1px solid #bee5eb;
-        }
-
-        /* Queue Items */
-        .queue-item {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            padding: 10px;
-            border: 1px solid #eee;
-            border-radius: 8px;
-            margin-bottom: 6px;
-            background: #fafafa;
         }
 
         /* Spinner */
@@ -1179,9 +1275,16 @@
 
                 <!-- Download Queue -->
                 <div class="card queue-section" id="queueCard" style="display: none;">
-                    <div class="card-header">
+                    <div class="card-header queue-header">
                         <h2 class="card-title">⬇️ Download Queue</h2>
-                        <button class="btn-secondary btn-small" onclick="refreshQueue()">Refresh</button>
+                        <div class="queue-stats" id="queueStats">
+                            <span class="queue-stat active-count">🟢 Active: <strong id="activeCount">0</strong>/2</span>
+                            <span class="queue-stat waiting-count">⏳ Waiting: <strong id="waitingCount">0</strong></span>
+                        </div>
+                        <div style="display: flex; gap: 6px;">
+                            <button class="btn-secondary btn-small" onclick="refreshQueue()">🔄</button>
+                            <button class="btn-danger btn-small" onclick="clearWaitingQueue()">Clear Waiting</button>
+                        </div>
                     </div>
                     <div id="queueList"></div>
                 </div>
@@ -2039,45 +2142,85 @@
 
         async function refreshQueue() {
             try {
-                const response = await fetch(`${API_BASE}/api/download-queue`);
+                // ⭐ Use NEW queue status endpoint (shows active/waiting/slots)
+                const response = await fetch(`${API_BASE}/api/download/queue/status`);
                 const data = await response.json();
 
                 if (data.success) {
-                    renderQueue(data.queue);
-                    document.getElementById('queueCard').style.display = 
-                        (data.queue.active.length > 0 || data.queue.completed.length > 0) ? 'block' : 'none';
+                    // Update stats display
+                    document.getElementById('activeCount').textContent = data.queue.active || 0;
+                    document.getElementById('waitingCount').textContent = data.queue.queued || 0;
+                    
+                    // Render queue items
+                    renderQueue(data);
+                    
+                    // Show/hide queue card based on activity
+                    const hasActivity = (data.queue.active > 0) || (data.queue.queued > 0) || 
+                                       (data.activeDownloads && data.activeDownloads.length > 0);
+                    document.getElementById('queueCard').style.display = hasActivity ? 'block' : 'none';
                 }
             } catch (error) {
                 console.error('Error refreshing queue:', error);
             }
         }
 
-        function renderQueue(queue) {
+        function renderQueue(data) {
             const container = document.getElementById('queueList');
             
-            const items = [
-                ...(queue.active || []),
-                ...(queue.completed || []).slice(-5)
-            ];
+            // Combine active downloads and waiting queue
+            const activeItems = (data.activeDownloads || []).map((item, idx) => ({
+                ...item,
+                status: 'downloading',
+                position: `🟢 #${idx + 1}`,
+                isWaiting: false
+            }));
+            
+            const waitingItems = (data.queue?.queue || []).map((item, idx) => ({
+                ...item,
+                status: 'waiting',
+                position: `⏳ #${idx + 1}`,
+                isWaiting: true
+            }));
+            
+            const allItems = [...activeItems, ...waitingItems];
 
-            if (items.length === 0) {
-                container.innerHTML = '<p style="text-align: center; color: #666;">No downloads in queue</p>';
+            if (allItems.length === 0) {
+                container.innerHTML = '<p style="text-align: center; color: #666; padding: 15px;">No downloads in queue</p>';
                 return;
             }
 
-            container.innerHTML = items.map(item => `
-                <div class="queue-item">
-                    <div>
-                        <strong>${escapeHtml(item.filename || item.url || 'Download')}</strong>
-                        <div style="font-size: 0.8em; color: #666; margin-top: 3px;">
-                            <span class="status-badge status-${item.status}">${item.status}</span>
-                            ${item.progress != null ? `${item.progress}%` : ''}
-                            ${item.speed ? `@ ${item.speed}` : ''}
-                        </div>
+            // ⭐ Single-line queue items with status
+            container.innerHTML = allItems.map(item => `
+                <div class="queue-item ${item.isWaiting ? 'waiting' : 'downloading'}">
+                    <div class="queue-item-info">
+                        <span class="queue-position">${item.position}</span>
+                        <span class="queue-item-title" title="${escapeHtml(item.title || item.id || 'Download')}">${escapeHtml(item.title || item.id || 'Download')}</span>
                     </div>
-                    ${item.finalFilename ? `<div style="font-size: 0.75em; color: #388e3c;">→ ${escapeHtml(item.finalFilename)}</div>` : ''}
+                    <div class="queue-item-status">
+                        ${item.isWaiting 
+                            ? `<span class="status-badge queue-waiting">⏳ Waiting</span>`
+                            : `<span class="status-badge queue-active">▶️ ${item.progress || 0}%</span>`
+                        }
+                        ${item.speed && !item.isWaiting ? `<span style="color:#666">@${item.speed}</span>` : ''}
+                    </div>
                 </div>
             `).join('');
+        }
+        
+        // Clear only waiting downloads (not active ones)
+        async function clearWaitingQueue() {
+            try {
+                const response = await fetch(`${API_BASE}/api/download/queue/clear`, { method: 'POST' });
+                const data = await response.json();
+                
+                if (data.success) {
+                    showAlert(`Cleared ${data.clearedCount} waiting downloads`, 'info');
+                    addLogEntry(`🗑️ Cleared ${data.clearedCount} waiting downloads from queue`, 'info');
+                    refreshQueue();
+                }
+            } catch (error) {
+                console.error('Error clearing queue:', error);
+            }
         }
 
         function clearCompleted() {

@@ -1852,6 +1852,23 @@ const downloadQueue = {
         this.queue = [];
         console.log(`[Download Queue] 🗑️ Queue cleared (${cleared} jobs removed)`);
         return cleared;
+    },
+    
+    /**
+     * ⭐ SAFETY: Process next job if stuck (backup mechanism)
+     * Call this periodically or when detecting potential stalls
+     */
+    processStuckQueue() {
+        // Check if we have capacity and queued jobs
+        if (this.activeDownloads < this.maxConcurrent && this.queue.length > 0) {
+            console.log('[Download Queue] 🔄 Safety check: Found stuck jobs, processing...');
+            while (this.activeDownloads < this.maxConcurrent && this.queue.length > 0) {
+                const nextJob = this.queue.shift();
+                this.activeDownloads++;
+                console.log(`[Download Queue] ▶️ Safety-starting: ${nextJob.videoTitle?.substring(0, 30)}...`);
+                this.executeJob(nextJob);
+            }
+        }
     }
 };
 
@@ -1863,7 +1880,7 @@ function executeSmartDownload(downloadId, videoUrl, outputPath, videoTitle) {
     const download = downloadManager.get(downloadId);
     if (!download) {
         console.error('[Smart Download] Download not found:', downloadId);
-        return;
+        return Promise.reject(new Error('Download not found'));
     }
 
     console.log(`\n[Smart Download] 🎯 Starting SMART download for: ${videoTitle}`);
@@ -1872,8 +1889,9 @@ function executeSmartDownload(downloadId, videoUrl, outputPath, videoTitle) {
     // Update status
     downloadManager.update(downloadId, { status: 'downloading', startTime: Date.now() });
 
-    // Step 1: Analyze formats
-    analyzeVideoFormats(videoUrl)
+    // ⭐ FIX: RETURN the promise chain so callers can await/then/catch it!
+    // This is critical for the Download Queue to know when a job completes
+    return analyzeVideoFormats(videoUrl)
         .then(formatInfo => {
             console.log(`[Smart Download] 📊 Format analysis complete:`);
             console.log(`   Selected: ${formatInfo.formatId} (${formatInfo.resolution}, ${formatInfo.ext})`);
@@ -1910,6 +1928,7 @@ function executeSmartDownload(downloadId, videoUrl, outputPath, videoTitle) {
             });
 
             console.log(`[Smart Download] ✅ Download job ${downloadId} completed successfully`);
+            return renameResult;  // Return for chaining
 
         })
         .catch(error => {
@@ -1920,6 +1939,8 @@ function executeSmartDownload(downloadId, videoUrl, outputPath, videoTitle) {
                 error: error.message,
                 endTime: Date.now()
             });
+            
+            throw error;  // Re-throw so caller's .catch() fires
         });
 }
 
