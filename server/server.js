@@ -1594,26 +1594,53 @@ app.get('/api/channels/:id/stats', async (req, res) => {
     }
 });
 
-// Helper: Count videos on YouTube using yt-dlp (CROSS-PLATFORM FIX)
-// FIXED: Removed Unix 'wc -l' pipe that doesn't work on Windows
+// Helper: Count videos on YouTube using yt-dlp (OPTIMIZED)
+// Uses yt-dlp's built-in %(n_entries)s for direct count - no piping needed!
+// Works on Windows, Linux, macOS - truly cross-platform!
 async function getYoutubeVideoCount(channelUrl) {
     return new Promise((resolve, reject) => {
-        // ⭐ FIXED: Don't use pipe/wc - not cross-platform compatible
-        const cmd = `yt-dlp --flat-playlist --print "%(id)s" "${channelUrl}" 2>nul`;
+        // ⭐ OPTIMIZED: Use %(n_entries)s to get count DIRECTLY from yt-dlp
+        // This is faster than listing all IDs and counting lines
+        // No pipes, no wc, no JavaScript line counting needed!
+        const cmd = `yt-dlp --flat-playlist --print "%(n_entries)s" "${channelUrl}" 2>nul`;
         
         exec(cmd, (error, stdout, stderr) => {
             if (error) {
                 // If yt-dlp fails, return 0 gracefully
                 console.error('[Stats] yt-dlp error:', error.message);
                 resolve(0);
+                return;
             }
             
-            // ⭐ FIXED: Count lines in JavaScript instead of 'wc -l'
-            // This works on Windows, Linux, and macOS
-            const lines = stdout.trim().split('\n').filter(line => line.trim());
-            const count = lines.length;
-            console.log(`[Stats] Found ${count} videos on YouTube`);
-            resolve(count);
+            // The output should be just a number (the count)
+            const output = stdout.trim();
+            
+            // Try to parse as direct number first (from n_entries)
+            let count = parseInt(output, 10);
+            
+            if (isNaN(count) || count === 0) {
+                // Fallback: If n_entries didn't work, try counting IDs
+                // This handles older yt-dlp versions that might not support n_entries
+                console.log('[Stats] n_entries not available, falling back to ID counting...');
+                
+                const fallbackCmd = `yt-dlp --flat-playlist --print "%(id)s" "${channelUrl}" 2>nul`;
+                exec(fallbackCmd, (fallbackError, fallbackStdout) => {
+                    if (fallbackError) {
+                        console.error('[Stats] Fallback also failed:', fallbackError.message);
+                        resolve(0);
+                        return;
+                    }
+                    
+                    // Count non-empty lines in JavaScript (cross-platform)
+                    const lines = fallbackStdout.trim().split('\n').filter(line => line.trim());
+                    count = lines.length;
+                    console.log(`[Stats] Found ${count} videos on YouTube (fallback method)`);
+                    resolve(count);
+                });
+            } else {
+                console.log(`[Stats] Found ${count} videos on YouTube (direct method)`);
+                resolve(count);
+            }
         });
     });
 }
@@ -1791,29 +1818,19 @@ function executeDownloadWithFormat(downloadId, videoUrl, outputPath, formatInfo,
         console.log(`[Execute Download] Format: ${formatInfo.formatId} (${formatInfo.resolution})`);
         console.log(`[Execute Download] Needs merge: ${formatInfo.needsMerge}`);
 
-        // ⭐ FIXED: Get output directory and base filename separately
+        // ⭐ ROBUST FIX: ALWAYS use template output (never force fixed filename!)
+        // This prevents "Fixed output name but more than one file to download" error
+        // yt-dlp needs flexibility to handle temp files during merge operations
         const outputDir = path.dirname(outputPath);
         const baseFilename = path.basename(outputPath, '.mp4');  // without extension
         
-        // ⭐ CROSS-PLATFORM FIX: Handle merged formats properly
-        // When video needs merging (separate video+audio), we CANNOT use fixed output name
-        // because yt-dlp needs to create temp files, merge them, then save
-        let outputTemplate;
-        let finalOutputPath = outputPath;  // Where we expect the file to end up
+        // ALWAYS use template format - works for both merged and non-merged downloads
+        const outputTemplate = path.join(outputDir, `${baseFilename}.%(ext)s`);
         
-        if (formatInfo.needsMerge) {
-            // For merged downloads, use a safe template that yt-dlp can work with
-            // The '%(title)s.%(ext)s' allows yt-dlp to handle temp files during merge
-            outputTemplate = path.join(outputDir, `${baseFilename}.%(ext)s`);
-            console.log(`[Execute Download] 🔄 MERGE MODE - using flexible output template`);
-        } else {
-            // For non-merged (single file) downloads, use exact filename
-            outputTemplate = outputPath;
-            console.log(`[Execute Download] 📥 SINGLE FILE MODE - using exact output path`);
-        }
-        
+        console.log(`[Execute Download] 🔄 ALWAYS using template mode (prevents merge errors)`);
         console.log(`[Execute Download] Output dir: ${outputDir}`);
         console.log(`[Execute Download] Output template: ${outputTemplate}`);
+        console.log(`[Execute Download] Expected final file: ${outputPath}`);
 
         // Build arguments array for spawn (safer than shell command)
         const args = [
@@ -1825,21 +1842,19 @@ function executeDownloadWithFormat(downloadId, videoUrl, outputPath, formatInfo,
             '--embed-thumbnail'
         ];
         
-        // Add merge requirement if format needs it
-        if (formatInfo.needsMerge) {
-            // ⭐ KEY FIX: Use --merge-output-format to specify final container
-            // This tells yt-dlp to merge into mp4 container
-            args.push('--merge-output-format', 'mp4');
-            if (FFMPEG_AVAILABLE) {
-                console.log('[Execute Download] ✅ FFmpeg available for merging');
-            } else {
-                console.warn('[Execute Download] ⚠️ FFmpeg not available, merge may fail');
-            }
+        // Always add merge flag - if merging isn't needed, yt-dlp just ignores it
+        // This ensures we NEVER get "Fixed output name" error
+        args.push('--merge-output-format', 'mp4');
+        
+        if (FFMPEG_AVAILABLE) {
+            console.log('[Execute Download] ✅ FFmpeg available for merging');
+        } else {
+            console.warn('[Execute Download] ⚠️ FFmpeg not available, using fallback merger');
         }
         
         args.push(videoUrl);
 
-        console.log(`[Execute Download] Command: yt-dlp ${args.join(' ').substring(0, 150)}...`);
+        console.log(`[Execute Download] Full command: yt-dlp ${args.join(' ').substring(0, 200)}...`);
 
         const ytDlpProcess = spawn('yt-dlp', args, {
             stdio: ['pipe', 'pipe', 'pipe'],
