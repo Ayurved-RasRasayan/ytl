@@ -1238,9 +1238,14 @@
             border-bottom: 1px solid #333;
         }
 
-        .log-content {
+        /* Log scroll area - Direct container (no wrapper needed) */
+        .log-scroll-area {
             overflow-y: auto;
-            max-height: 180px;
+            max-height: 250px;  /* Sweet spot - shows plenty of logs */
+            min-height: 80px;
+            background: #252526;
+            border-radius: 4px;
+            padding: 8px;
         }
 
         /* LIVE INDICATOR */
@@ -1586,14 +1591,10 @@
                                 <button class="log-toggle" onclick="clearLogs()" title="Clear current log">Clear</button>
                             </div>
                         </div>
-                        <!-- Download Log Panel -->
-                        <div id="downloadLogPanel" class="log-content">
-                            <div id="logEntries"></div>
-                        </div>
-                        <!-- Server Terminal Log Panel -->
-                        <div id="serverLogPanel" class="log-content" style="display: none;">
-                            <div id="serverLogEntries"></div>
-                        </div>
+                        <!-- Download Log - Direct container (no wrapper) -->
+                        <div id="logEntries" class="log-scroll-area"></div>
+                        <!-- Server Terminal - Direct container (no wrapper) -->
+                        <div id="serverLogEntries" class="log-scroll-area" style="display: none;"></div>
                     </div>
                 </div>
 
@@ -1741,44 +1742,23 @@
             if (container.innerHTML !== newHtml) {
                 container.innerHTML = newHtml;
                 
-                // INSTANT scroll BOTH containers to bottom
-                // Inner scroll (#logEntries)
+                // Scroll inner container to bottom (ONLY scroll now)
                 container.scrollTop = container.scrollHeight;
-                
-                // Outer scroll (#downloadLogPanel)
-                const outerContainer = document.getElementById('downloadLogPanel');
-                if (outerContainer) {
-                    outerContainer.scrollTop = outerContainer.scrollHeight;
-                }
             }
         }
 
         function scrollToLogBottom() {
-            // ========== DOWNLOAD LOG: Scroll BOTH containers ==========
-            // Inner scroll (#logEntries)
+            // Download Log: Scroll inner container only
             const downloadInner = document.getElementById('logEntries');
             if (downloadInner) {
                 downloadInner.scrollTop = downloadInner.scrollHeight;
             }
             
-            // Outer scroll (#downloadLogPanel)
-            const downloadOuter = document.getElementById('downloadLogPanel');
-            if (downloadOuter) {
-                downloadOuter.scrollTop = downloadOuter.scrollHeight;
-            }
-            
-            // ========== SERVER TERMINAL: Scroll BOTH containers (if active) ==========
+            // Server Terminal: Scroll inner container only (if active)
             if (currentLogTab === 'server') {
-                // Inner scroll (#serverLogEntries)
                 const serverInner = document.getElementById('serverLogEntries');
                 if (serverInner) {
                     serverInner.scrollTop = serverInner.scrollHeight;
-                }
-                
-                // Outer scroll (#serverLogPanel)
-                const serverOuter = document.getElementById('serverLogPanel');
-                if (serverOuter) {
-                    serverOuter.scrollTop = serverOuter.scrollHeight;
                 }
             }
         }
@@ -1799,8 +1779,9 @@
             document.getElementById('tabDownload').classList.toggle('active', tab === 'download');
             document.getElementById('tabServer').classList.toggle('active', tab === 'server');
             
-            document.getElementById('downloadLogPanel').style.display = tab === 'download' ? 'block' : 'none';
-            document.getElementById('serverLogPanel').style.display = tab === 'server' ? 'block' : 'none';
+            // Show/hide direct containers (no wrappers)
+            document.getElementById('logEntries').style.display = tab === 'download' ? 'block' : 'none';
+            document.getElementById('serverLogEntries').style.display = tab === 'server' ? 'block' : 'none';
             
             if (tab === 'server') {
                 fetchServerLogs();
@@ -1857,17 +1838,10 @@
                 container.insertAdjacentHTML('beforeend', newHtml);
             }
             
-            // INSTANT auto-scroll BOTH server terminal containers to latest log
-            // Inner scroll (#serverLogEntries)
+            // Scroll inner container to bottom (ONLY scroll now)
             const serverInner = document.getElementById('serverLogEntries');
             if (serverInner) {
                 serverInner.scrollTop = serverInner.scrollHeight;
-            }
-            
-            // Outer scroll (#serverLogPanel)
-            const serverOuter = document.getElementById('serverLogPanel');
-            if (serverOuter) {
-                serverOuter.scrollTop = serverOuter.scrollHeight;
             }
         }
 
