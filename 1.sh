@@ -1,6 +1,173 @@
 #!/bin/bash
 
 # =============================================================================
+# PROCESS CLEANUP SYSTEM - Kills orphan processes on exit
+# =============================================================================
+
+# Configuration
+CLEANUP_LOG="cleanup.log"
+GRACEFUL_DELAY=3  # Seconds to wait before force-killing
+
+# Logging function
+cleanup_log() {
+    echo "[$(date '+%Y-%m-%d %H:%M:%S')] $*" | tee -a "$CLEANUP_LOG"
+}
+
+# Main cleanup function
+cleanup_processes() {
+    cleanup_log "🧹 Cleanup initiated - Terminal closing..."
+    cleanup_log "Script PID: $$"
+    
+    detect_os_type
+    
+    case "$OS_TYPE" in
+        windows|msys|cygwin)
+            cleanup_windows_processes
+            ;;
+        linux|darwin|unix)
+            cleanup_unix_processes
+            ;;
+        *)
+            cleanup_generic
+            ;;
+    esac
+    
+    cleanup_log "✅ Cleanup completed"
+}
+
+# Detect operating system
+detect_os_type() {
+    case "$(uname -s)" in
+        MINGW*|MSYS*|CYGWIN*) OS_TYPE="windows" ;;
+        Linux*)     OS_TYPE="linux" ;;
+        Darwin*)    OS_TYPE="macos" ;;
+        *)          OS_TYPE="unix" ;;
+    esac
+    cleanup_log "Detected OS: $OS_TYPE ($(uname -s))"
+}
+
+# Windows-specific cleanup (Git Bash, MSYS2, Cygwin)
+cleanup_windows_processes() {
+    cleanup_log "🪟 Running Windows process cleanup..."
+    
+    local killed_bash=0
+    local killed_sleep=0
+    
+    # Method 1: Try taskkill (Windows native command)
+    if command -v taskkill &> /dev/null; then
+        cleanup_log "Using taskkill for process termination..."
+        
+        # Kill all sleep.exe processes
+        local sleep_pids=$(tasklist //FI "IMAGENAME eq sleep.exe" //NH //FO CSV 2>/dev/null | grep -i "sleep.exe" | wc -l)
+        if [ "$sleep_pids" -gt 0 ] 2>/dev/null; then
+            taskkill //F //IM sleep.exe 2>/dev/null && killed_sleep=$sleep_pids
+            cleanup_log "Terminated $killed_sleep sleep.exe process(es)"
+        fi
+        
+        # Kill all bash.exe processes EXCEPT current script's bash
+        local bash_pids=$(tasklist //FI "IMAGENAME eq bash.exe" //NH //FO CSV 2>/dev/null | grep -i "bash.exe" | wc -l)
+        if [ "$bash_pids" -gt 1 ] 2>/dev/null; then
+            taskkill //F //IM bash.exe 2>/dev/null && killed_bash=$((bash_pids - 1))
+            cleanup_log "Terminated $killed_bash additional bash.exe process(es)"
+        fi
+    fi
+    
+    # Method 2: Use pkill (available in Git Bash/MSYS2)
+    if command -v pkill &> /dev/null; then
+        cleanup_log "Using pkill for additional cleanup..."
+        
+        # Kill sleep.exe
+        pkill -f "sleep\.exe" 2>/dev/null && cleanup_log "pkill: sleep.exe terminated"
+        pkill -f "sleep" 2>/dev/null && cleanup_log "pkill: sleep terminated"
+    fi
+    
+    cleanup_log "Windows cleanup complete (bash: $killed_bash, sleep: $killed_sleep)"
+}
+
+# Unix/Linux/macOS cleanup
+cleanup_unix_processes() {
+    cleanup_log "🐧 Running Unix process cleanup..."
+    
+    local killed_count=0
+    
+    if command -v pkill &> /dev/null; then
+        # Kill child processes of this script
+        local children=$(pgrep -P $$ 2>/dev/null)
+        if [ -n "$children" ]; then
+            echo "$children" | while read -r child_pid; do
+                kill "$child_pid" 2>/dev/null && killed_count=$((killed_count + 1))
+            done
+            cleanup_log "Terminated $killed_count child process(es)"
+        fi
+        
+        # Kill any sleep processes
+        pkill -f "sleep" 2>/dev/null && cleanup_log "Terminated sleep processes"
+    else
+        # Fallback: Use kill on job PIDs
+        for job_pid in $(jobs -p 2>/dev/null); do
+            kill "$job_pid" 2>/dev/null && killed_count=$((killed_count + 1))
+        done
+        [ "$killed_count" -gt 0 ] && cleanup_log "Terminated $killed_count background jobs"
+    fi
+}
+
+# Generic cleanup (fallback)
+cleanup_generic() {
+    cleanup_log "Running generic cleanup..."
+    pkill -P $$ 2>/dev/null || true
+    pkill -f "sleep" 2>/dev/null || true
+    cleanup_log "Generic cleanup completed"
+}
+
+# Graceful shutdown with delay before force-kill
+graceful_cleanup() {
+    cleanup_log "Starting graceful shutdown (${GRACEFUL_DELAY}s delay)..."
+    
+    # Attempt graceful termination first
+    if [ "$OS_TYPE" = "windows" ] || [ "$OS_TYPE" = "msys" ] || [ "$OS_TYPE" = "cygwin" ]; then
+        taskkill //F //IM sleep.exe 2>/dev/null || true
+    else
+        pkill -P $$ 2>/dev/null || true
+        pkill -f "sleep" 2>/dev/null || true
+    fi
+    
+    # Wait for processes to terminate gracefully
+    cleanup_log "Waiting ${GRACEFUL_DELAY}s for graceful termination..."
+    sleep "$GRACEFUL_DELAY"
+    
+    # Force kill anything still running
+    cleanup_log "Force-killing remaining processes..."
+    cleanup_processes_force
+}
+
+# Force kill remaining processes
+cleanup_processes_force() {
+    if command -v pkill &> /dev/null; then
+        pkill -9 -f "sleep" 2>/dev/null || true
+        pkill -9 -P $$ 2>/dev/null || true
+    fi
+    
+    if command -v taskkill &> /dev/null; then
+        taskkill //F //IM sleep.exe 2>/dev/null || true
+    fi
+}
+
+# =============================================================================
+# REGISTER TRAPS - Catch ALL exit signals
+# =============================================================================
+trap 'cleanup_log "Received EXIT signal"; graceful_cleanup' EXIT
+trap 'cleanup_log "Received INT signal (Ctrl+C)"; graceful_cleanup' INT
+trap 'cleanup_log "Received TERM signal"; graceful_cleanup' TERM
+trap 'cleanup_log "Received HUP signal (terminal closed)"; graceful_cleanup' HUP
+trap 'cleanup_log "Received QUIT signal"; graceful_cleanup' QUIT
+trap 'cleanup_log "Received BREAK signal"; graceful_cleanup' BREAK
+
+cleanup_log "🚀 Process cleanup system initialized (PID: $$)"
+cleanup_log "Traps registered for: EXIT, INT, TERM, HUP, QUIT, BREAK"
+
+# ... REST OF ORIGINAL 1.sh SCRIPT CONTINUES BELOW ...
+
+# =============================================================================
 # YouTube Downloader - COMPLETE ALL-IN-ONE SETUP SCRIPT
 # Version 7.0 - ⭐⭐⭐ FULLY UPDATED WITH ALL FIXES ⭐⭐⭐
 #
@@ -11,7 +178,7 @@
 #   4. ✅ DETECTS existing cookies.txt (skips extraction if found)
 #   5. ✅ AGGRESSIVELY KILLS Edge (retry every 5 sec until dead)
 #   6. ✅ Extracts cookies with WORKING Python script (if needed)
-#   7. ✅ Patches server.js to use --cookies <file> (NOT --cookies-from-browser)
+#   7. ✅ Patches server.js to use --cookies  (NOT --cookies-from-browser)
 #   8. ✅ COPIES PRE-MODIFIED FILES (Cancel/Resume buttons, Hidden quality)
 #   9. ✅ Starts server and opens browser
 #  10. ✅ TERMINAL STAYS OPEN FOREVER (no auto-close, no "press any key")
@@ -1247,3 +1414,4 @@ main() {
 
 # Call main function to start everything
 main "$@"
+

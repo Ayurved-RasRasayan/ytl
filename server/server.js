@@ -1,4 +1,3 @@
-
 const express = require('express');
 const cors = require('cors');
 const { v4: uuidv4 } = require('uuid');
@@ -7,6 +6,50 @@ const { execSync, exec, spawn } = require('child_process');
 const path = require('path');
 const fs = require('fs');
 const os = require('os');
+
+// =============================================================================
+// AUTHENTICATION & SECURITY MODULES
+// =============================================================================
+
+// Load environment variables
+const dotenv = require('dotenv');
+dotenv.config({ path: path.join(__dirname, '.env') });
+
+const session = require('express-session');
+const rateLimit = require('express-rate-limit');
+
+// =============================================================================
+// AUTHENTICATION CONFIGURATION
+// =============================================================================
+
+const AUTH_CONFIG = {
+    username: process.env.ADMIN_USERNAME,
+    password: process.env.ADMIN_PASSWORD,
+    sessionSecret: process.env.SESSION_SECRET || 'change-me-to-random-secret',
+    sessionMaxAge: 2 * 24 * 60 * 60 * 1000,  // 2 days in milliseconds
+    cookieFilePath: process.env.COOKIE_FILE_PATH || path.join(process.cwd(), 'cookies.txt'),
+    browserName: process.env.BROWSER_NAME || 'edge' // chrome, firefox, edge, safari
+};
+
+// Validate auth config on startup
+function validateAuthConfig() {
+    if (!AUTH_CONFIG.username || !AUTH_CONFIG.password) {
+        console.error(`
+╔══════════════════════════════════════════════════════════════╗
+║  ⚠️  AUTHENTICATION NOT CONFIGURED!                          ║
+╠══════════════════════════════════════════════════════════════╣
+║  Please create a .env file in the server/ directory with:    ║
+║                                                              ║
+║    ADMIN_USERNAME=your_username                              ║
+║    ADMIN_PASSWORD=your_secure_password                       ║
+║    SESSION_SECRET=random_string_here                         ║
+║                                                              ║
+║  See .env.example for more details                           ║
+╚══════════════════════════════════════════════════════════════╝
+        `);
+        process.exit(1);
+    }
+}
 
 // =============================================================================
 // PATH CONVERSION - Convert Cygwin/Unix paths to Native OS paths
@@ -350,7 +393,7 @@ const DOWNLOADS_DIR = getDefaultDownloadsDir();
 function getChannelDownloadDir(channelName) {
     // Sanitize channel name for use as folder name (remove invalid characters)
     const safeChannelName = (channelName || 'Unknown_Channel')
-        .replace(/[<>:"/\\|?*]/g, '_')  // Replace invalid chars
+        .replace(/[:"/\\|?*]/g, '_')  // Replace invalid chars
         .replace(/\s+/g, '_')              // Replace spaces with underscores
         .substring(0, 100);                 // Limit length
     
@@ -370,11 +413,6 @@ if (!fs.existsSync(DOWNLOADS_DIR)) {
     fs.mkdirSync(DOWNLOADS_DIR, { recursive: true });
     console.log('[Init] Created downloads directory:', DOWNLOADS_DIR);
 }
-
-const AUTH_CONFIG = {
-    cookieFilePath: process.env.COOKIE_FILE_PATH || path.join(process.cwd(), 'cookies.txt'),
-    browserName: process.env.BROWSER_NAME || 'edge' // chrome, firefox, edge, safari
-};
 
 // FFmpeg availability check
 let FFMPEG_AVAILABLE = false;
@@ -488,421 +526,40 @@ const downloadManager = {
 };
 
 // =============================================================================
-// ⭐ DOWNLOAD DETECTION & SYNC SYSTEM - Enhanced for renamed files
+// FILENAME DUPLICATE HANDLER (MODIFICATION 3)
 // =============================================================================
 
-// In-memory set of downloaded video IDs (persisted across requests)
-const downloadedVideos = new Set();  // Stores: videoId -> filename
-const skippedVideos = new Set();    // Stores: videoId -> reason
-
-// ⭐ NEW: Enhanced file index for fuzzy matching
-// Structure: { normalizedTitle: { filename, path, size, modified, videoId } }
-const downloadedFilesIndex = new Map();
-
 /**
- * Normalize a string for fuzzy comparison
- * - Lowercase
- * - Remove special characters
- * - Remove extra spaces
- * - Common word variations
+ * Generates a unique filename by appending -1, -2, etc. if file exists
+ * @param {string} directory - Target directory
+ * @param {string} originalFilename - Original filename (e.g., "video.mp4")
+ * @returns {string} - Safe filename (e.g., "video-1.mp4", "video-2.mp4")
  */
-function normalizeForMatch(str) {
-    if (!str) return '';
-    return str
-        .toLowerCase()
-        .replace(/[<>:"/\\|?*[\]]/g, '')  // Remove special chars
-        .replace(/[_\-]/g, ' ')           // Replace underscores/hyphens with spaces
-        .replace(/\s+/g, ' ')             // Collapse multiple spaces
-        .trim()
-        .substring(0, 200);               // Limit length
+function getUniqueFilename(directory, originalFilename) {
+    const ext = path.extname(originalFilename);           // ".mp4"
+    const baseName = path.basename(originalFilename, ext); // "video"
+    
+    let finalFilename = originalFilename;
+    let counter = 1;
+    
+    while (fs.existsSync(path.join(directory, finalFilename))) {
+        finalFilename = `${baseName}-${counter}${ext}`;
+        counter++;
+        
+        // Safety limit to prevent infinite loops
+        if (counter > 1000) {
+            console.warn('[Filename] Counter exceeded 1000, using timestamp');
+            finalFilename = `${baseName}-${Date.now()}${ext}`;
+            break;
+        }
+    }
+    
+    if (counter > 1) {
+        console.log(`[Filename] Duplicate detected: "${originalFilename}" → "${finalFilename}"`);
+    }
+    
+    return finalFilename;
 }
-
-/**
- * Calculate similarity ratio between two strings (0-1)
- * Uses strict token-based matching for accuracy
- * VERSION 7.0: Stricter matching to prevent false positives!
- */
-function calculateSimilarity(str1, str2) {
-    const norm1 = normalizeForMatch(str1);
-    const norm2 = normalizeForMatch(str2);
-    
-    if (!norm1 || !norm2) return 0;
-    
-    // Exact match
-    if (norm1 === norm2) return 1;
-    
-    // ⭐ FIXED: One contains the other - but require MINIMUM 10 chars match to prevent false positives
-    const shorter = norm1.length < norm2.length ? norm1 : norm2;
-    const longer = norm1.length < norm2.length ? norm2 : norm1;
-    
-    if (longer.includes(shorter) && shorter.length >= 15) {
-        return 0.95;  // Strong match for long substrings
-    }
-    
-    // For short strings, require exact match
-    if (shorter.length < 10) {
-        return norm1 === norm2 ? 1 : 0;
-    }
-    
-    // Token-based similarity (strict)
-    const tokens1 = new Set(norm1.split(' ').filter(t => t.length > 3));  // ⭐ Increased min token length
-    const tokens2 = new Set(norm2.split(' ').filter(t => t.length > 3));
-    
-    if (tokens1.size === 0 || tokens2.size === 0) return 0;
-    
-    let commonTokens = 0;
-    let totalMatchedLength = 0;
-    
-    tokens1.forEach(token => {
-        if (tokens2.has(token)) {
-            commonTokens++;
-            totalMatchedLength += token.length;  // Weight by token length
-        }
-    });
-    
-    // ⭐ NEW: Calculate weighted similarity
-    const avgTokenLength = (totalMatchedLength / Math.max(commonTokens, 1));
-    const lengthBonus = Math.min(avgTokenLength / 10, 0.2);  // Bonus for longer matches
-    
-    const tokenSimilarity = (commonTokens * 2) / (tokens1.size + tokens2.size);
-    const finalSimilarity = Math.min(1, tokenSimilarity + lengthBonus);
-    
-    console.log(`[Similarity] "${norm1.substring(0, 30)}..." vs "${norm2.substring(0, 30)}..." = ${(finalSimilarity * 100).toFixed(1)}% (${commonTokens} common tokens)`);
-    
-    return finalSimilarity;
-}
-
-/**
- * Check if a file already exists in the downloads directory
- * @param {string} filename - The filename to check
- * @returns {object} - { exists: boolean, path: string, size: number }
- */
-function checkFileExists(filename) {
-    // Try different possible extensions
-    const extensions = ['.mp4', '.webm', '.mkv', '.avi', '.mov', '.flv'];
-    const baseName = filename.replace(/\.[^.]+$/, ''); // Remove extension if present
-    
-    // ⭐ NEW: First check the indexed files (includes channel folders!)
-    for (const [key, fileInfo] of downloadedFilesIndex) {
-        if (fileInfo.filename === filename || 
-            fileInfo.filename === baseName + '.mp4' ||
-            fileInfo.originalName === baseName ||
-            key.includes(normalizeForMatch(baseName))) {
-            return {
-                exists: true,
-                path: fileInfo.path,
-                filename: fileInfo.filename,
-                size: fileInfo.size,
-                sizeMB: fileInfo.sizeMB,
-                modified: fileInfo.modified,
-                channelFolder: fileInfo.channelFolder
-            };
-        }
-    }
-    
-    // Check base DOWNLOADS_DIR (legacy)
-    for (const ext of extensions) {
-        const fullPath = path.join(DOWNLOADS_DIR, baseName + ext);
-        if (fs.existsSync(fullPath)) {
-            const stats = fs.statSync(fullPath);
-            return {
-                exists: true,
-                path: fullPath,
-                filename: baseName + ext,
-                size: stats.size,
-                sizeMB: Math.round(stats.size / 1024 / 1024 * 100) / 100,
-                modified: stats.mtime,
-                channelFolder: null
-            };
-        }
-    }
-    
-    // Also check exact filename match in base dir
-    const exactPath = path.join(DOWNLOADS_DIR, filename);
-    if (fs.existsSync(exactPath)) {
-        const stats = fs.statSync(exactPath);
-        return {
-            exists: true,
-            path: exactPath,
-            filename: filename,
-            size: stats.size,
-            sizeMB: Math.round(stats.size / 1024 / 1024 * 100) / 100,
-            modified: stats.mtime,
-            channelFolder: null
-        };
-    }
-    
-    return { exists: false, path: null, filename: null, size: 0, sizeMB: 0, channelFolder: null };
-}
-
-/**
- * ⭐ NEW: Find downloaded file by video title (fuzzy matching)
- * Searches the downloadedFilesIndex for matching files
- * @param {string} title - Video title from YouTube
- * @param {number} threshold - Minimum similarity threshold (default 0.85 - STRICT!)
- * @returns {object|null} - File info object or null if not found
- */
-function findFileByTitle(title, threshold = 0.85) {  // ⭐ INCREASED from 0.6 to 0.85!
-    if (!title) return null;
-    
-    const normalizedTitle = normalizeForMatch(title);
-    let bestMatch = null;
-    let bestSimilarity = 0;
-    
-    // Search through indexed files
-    for (const [normalizedKey, fileInfo] of downloadedFilesIndex) {
-        const similarity = calculateSimilarity(normalizedTitle, normalizedKey);
-        
-        if (similarity > bestSimilarity && similarity >= threshold) {
-            bestSimilarity = similarity;
-            bestMatch = {
-                ...fileInfo,
-                similarity: similarity,
-                matchedBy: 'title'
-            };
-        }
-    }
-    
-    if (bestMatch) {
-        console.log(`[Title Match] Found "${title.substring(0, 40)}..." with ${(bestMatch.similarity * 100).toFixed(0)}% confidence`);
-    }
-    
-    return bestMatch;
-}
-
-/**
- * ⭐ ENHANCED: Scan downloads directory AND all channel subfolders
- * Call this on server startup to track already-downloaded files
- * Now builds an INDEX for fuzzy title matching!
- * VERSION 7.0: Now scans CHANNEL SUBFOLDERS too!
- */
-function scanExistingDownloads() {
-    console.log('\n═══════════════════════════════════════════════════════════════');
-    console.log('📁 [Download Sync] Scanning existing downloads in:');
-    console.log('   ', DOWNLOADS_DIR);
-    console.log('   ⭐ Including ALL channel subfolders!');
-    console.log('═══════════════════════════════════════════════════════════════');
-    
-    try {
-        let count = 0;
-        let totalSize = 0;
-        let channelCount = 0;
-        
-        // Clear and rebuild index
-        downloadedFilesIndex.clear();
-        
-        // ⭐ NEW: Recursive function to scan directory and subdirectories
-        function scanDirectory(dirPath, isChannelFolder = false) {
-            let folderName = path.basename(dirPath);
-            let items;
-            
-            try {
-                items = fs.readdirSync(dirPath);
-            } catch (err) {
-                console.log(`[Download Sync] Cannot read ${dirPath}: ${err.message}`);
-                return;
-            }
-            
-            items.forEach(item => {
-                const fullPath = path.join(dirPath, item);
-                
-                try {
-                    const stats = fs.statSync(fullPath);
-                    
-                    if (stats.isDirectory()) {
-                        // ⭐ RECURSE into subdirectories (channel folders!)
-                        // Skip node_modules, .git, etc.
-                        if (!item.startsWith('.') && item !== 'node_modules' && item !== '.git') {
-                            scanDirectory(fullPath, true);  // Mark as channel folder
-                            channelCount++;
-                        }
-                    } else if (stats.isFile()) {
-                        // Check if it's a video file
-                        if (item.endsWith('.mp4') || item.endsWith('.webm') || 
-                            item.endsWith('.mkv') || item.endsWith('.avi') || 
-                            item.endsWith('.mov') || item.endsWith('.flv')) {
-                            
-                            // Add to basic set (backward compatibility)
-                            downloadedVideos.add(item);
-                            
-                            // ⭐ NEW: Add to enhanced index with normalized title for fuzzy matching
-                            const nameWithoutExt = item.replace(/\.[^.]+$/, '');
-                            const normalizedName = normalizeForMatch(nameWithoutExt);
-                            
-                            // Store with channel info
-                            downloadedFilesIndex.set(normalizedName, {
-                                filename: item,
-                                path: fullPath,
-                                size: stats.size,
-                                sizeMB: Math.round(stats.size / 1024 / 1024 * 100) / 100,
-                                modified: stats.mtime,
-                                originalName: nameWithoutExt,
-                                channelFolder: isChannelFolder ? folderName : null,
-                                relativePath: path.relative(DOWNLOADS_DIR, fullPath)
-                            });
-                            
-                            count++;
-                            totalSize += stats.size;
-                            
-                            if (isChannelFolder) {
-                                console.log(`   📁 [${folderName}] ${item} (${(stats.size / 1024 / 1024).toFixed(2)} MB)`);
-                            } else {
-                                console.log(`   📄 [root] ${item} (${(stats.size / 1024 / 1024).toFixed(2)} MB)`);
-                            }
-                        }
-                    }
-                } catch (err) {
-                    // Skip files we can't access
-                }
-            });
-        }
-        
-        // Start scanning from base downloads directory
-        scanDirectory(DOWNLOADS_DIR);
-        
-        const totalSizeMB = Math.round(totalSize / 1024 / 1024 * 100) / 100;
-        
-        console.log(`\n[Download Sync] ✅ Scan Complete!`);
-        console.log(`   📊 Total Video Files Found: ${count}`);
-        console.log(`   📁 Channel Folders Scanned: ${channelCount}`);
-        console.log(`   💾 Total Size: ${totalSizeMB} MB`);
-        console.log(`   📋 Indexed for fuzzy matching: ${downloadedFilesIndex.size} files`);
-        console.log('═══════════════════════════════════════════════════════════════\n');
-        
-    } catch (error) {
-        console.log('[Download Sync] ⚠️ Error scanning downloads:', error.message);
-    }
-}
-
-/**
- * ⭐ ENHANCED: Get status of a specific video with fuzzy title matching
- * @param {string} videoId - YouTube video ID
- * @param {string} title - Video title (used for fuzzy matching!)
- * @returns {object} - { status: string, fileInfo: object|null }
- */
-function getVideoStatus(videoId, title) {
-    // Check skipped first
-    if (skippedVideos.has(videoId)) {
-        return { status: 'skipped', fileInfo: null, reason: 'previously_skipped' };
-    }
-    
-    // Check by video ID (exact match in downloadedVideos set)
-    if (downloadedVideos.has(videoId)) {
-        const fileInfo = checkFileExists(videoId);
-        return { status: 'downloaded', fileInfo, matchedBy: 'videoId' };
-    }
-    
-    // ⭐ NEW: Try fuzzy title matching (for renamed files!)
-    if (title) {
-        const matchedFile = findFileByTitle(title);
-        if (matchedFile) {
-            // Cache the match for future lookups
-            downloadedVideos.add(videoId);
-            downloadedVideos.add(matchedFile.filename);
-            
-            return { 
-                status: 'downloaded', 
-                fileInfo: matchedFile, 
-                matchedBy: 'title',
-                similarity: matchedFile.similarity
-            };
-        }
-        
-        // Legacy exact filename check (fallback)
-        const safeTitle = title.replace(/[<>:"/\\|?*]/g, '_').substring(0, 200);
-        const possibleFiles = [
-            safeTitle + '.mp4',
-            safeTitle.substring(0, 100) + '.mp4'
-        ];
-        
-        for (const file of possibleFiles) {
-            if (downloadedVideos.has(file)) {
-                const fileInfo = checkFileExists(file);
-                return { status: 'downloaded', fileInfo, matchedBy: 'filename_exact' };
-            }
-            
-            // Also check actual filesystem
-            const fileInfo = checkFileExists(file);
-            if (fileInfo.exists) {
-                downloadedVideos.add(file); // Cache it
-                return { status: 'downloaded', fileInfo, matchedBy: 'filesystem' };
-            }
-        }
-    }
-    
-    return { status: 'new', fileInfo: null };
-}
-
-/**
- * ⭐ NEW: Get status of video in SPECIFIC channel folder
- * @param {string} videoId - YouTube video ID
- * @param {string} title - Video title
- * @param {string} channelName - Channel name to search in
- * @returns {object} - { status: string, fileInfo: object|null }
- */
-function getVideoStatusInChannel(videoId, title, channelName) {
-    if (!channelName || !title) {
-        return { status: 'new', fileInfo: null };
-    }
-    
-    // Sanitize channel name (same as getChannelDownloadDir)
-    const safeChannelName = channelName.replace(/[<>:"/\\|?*]/g, '_').replace(/\s+/g, '_').substring(0, 100);
-    
-    // Normalize the title for matching
-    const normalizedTitle = normalizeForMatch(title);
-    
-    console.log(`[Channel Sync] Searching for "${title.substring(0, 40)}..." in channel: ${safeChannelName}`);
-    
-    // Search through indexed files, but ONLY in this channel's folder
-    let bestMatch = null;
-    let bestSimilarity = 0;
-    
-    for (const [key, fileInfo] of downloadedFilesIndex) {
-        // Only check files in this specific channel folder
-        if (fileInfo.channelFolder === safeChannelName || 
-            fileInfo.channelFolder === channelName ||
-            (fileInfo.relativePath && fileInfo.relativePath.startsWith(safeChannelName))) {
-            
-            // Check exact filename match first
-            if (fileInfo.originalName === normalizeForMatch(title.replace(/[<>:"/\\|?*]/g, '_'))) {
-                console.log(`[Channel Sync] ✅ Exact match found: ${fileInfo.filename}`);
-                return { 
-                    status: 'downloaded', 
-                    fileInfo: fileInfo, 
-                    matchedBy: 'channel_exact',
-                    similarity: 1.0
-                };
-            }
-            
-            // Try fuzzy match
-            const similarity = calculateSimilarity(normalizedTitle, key);
-            if (similarity > bestSimilarity && similarity >= 0.85) {  // ⭐ INCREASED to 0.85!
-                bestSimilarity = similarity;
-                bestMatch = {
-                    ...fileInfo,
-                    similarity: similarity,
-                    matchedBy: 'channel_fuzzy'
-                };
-            }
-        }
-    }
-    
-    if (bestMatch) {
-        console.log(`[Channel Sync] ✅ Fuzzy match found: "${bestMatch.filename}" with ${(bestMatch.similarity * 100).toFixed(0)}% confidence`);
-        return { 
-            status: 'downloaded', 
-            fileInfo: bestMatch, 
-            matchedBy: bestMatch.matchedBy,
-            similarity: bestMatch.similarity
-        };
-    }
-    
-    console.log(`[Channel Sync] ❌ No match found in channel: ${safeChannelName}`);
-    return { status: 'new', fileInfo: null };
-}
-
-// Scan existing downloads on startup
-scanExistingDownloads();
 
 // =============================================================================
 // EXPRESS APP INITIALIZATION - Must be BEFORE routes!
@@ -912,6 +569,155 @@ const app = express();
 app.use(cors());
 app.use(express.json({ limit: '50mb' }));
 app.use(express.urlencoded({ extended: true, limit: '50mb' }));
+
+// =============================================================================
+// SESSION MIDDLEWARE SETUP
+// =============================================================================
+
+app.use(session({
+    secret: AUTH_CONFIG.sessionSecret,
+    resave: false,
+    saveUninitialized: false,
+    cookie: { 
+        secure: false,  // Set to true if using HTTPS
+        maxAge: AUTH_CONFIG.sessionMaxAge,
+        httpOnly: true  // Prevent XSS attacks on session cookie
+    }
+}));
+
+// =============================================================================
+// RATE LIMITING FOR LOGIN ATTEMPTS
+// =============================================================================
+
+const loginLimiter = rateLimit({
+    windowMs: 15 * 60 * 1000,  // 15 minutes
+    max: 5,  // 5 attempts per window per IP
+    message: { 
+        success: false,
+        error: 'Too many login attempts. Please try again after 15 minutes.',
+        retryAfter: '15 minutes'
+    },
+    standardHeaders: true,
+    legacyHeaders: false
+});
+
+// =============================================================================
+// AUTHENTICATION MIDDLEWARE
+// =============================================================================
+
+// Routes that DON'T require authentication
+const publicRoutes = [
+    '/api/login',
+    '/api/health', 
+    '/login',
+    '/api/auth/status'
+];
+
+function requireAuth(req, res, next) {
+    // Check if path is public
+    if (publicRoutes.some(route => req.path.startsWith(route))) {
+        return next();
+    }
+    
+    // Check if user is authenticated via session
+    if (req.session && req.session.isAuthenticated) {
+        return next();
+    }
+    
+    // Not authenticated - return appropriate response
+    if (req.xhr || (req.headers.accept && req.headers.accept.includes('application/json'))) {
+        return res.status(401).json({ 
+            success: false,
+            error: 'Authentication required',
+            code: 'AUTH_REQUIRED'
+        });
+    }
+    
+    // Browser request - redirect to login page
+    return res.redirect('/login');
+}
+
+// Apply authentication middleware to ALL routes
+app.use(requireAuth);
+
+// =============================================================================
+// AUTHENTICATION ROUTES
+// =============================================================================
+
+// POST /api/login - Handle login attempts
+app.post('/api/login', loginLimiter, (req, res) => {
+    const { username, password } = req.body;
+    
+    console.log(`[Auth] Login attempt for user: '${username}' from IP: ${req.ip}`);
+    
+    // Validate credentials
+    if (username === AUTH_CONFIG.username && password === AUTH_CONFIG.password) {
+        req.session.isAuthenticated = true;
+        req.session.user = username;
+        req.session.loginTime = new Date().toISOString();
+        req.session.loginIP = req.ip;
+        
+        console.log(`[Auth] ✅ Successful login for user: '${username}'`);
+        
+        return res.json({
+            success: true,
+            message: 'Login successful',
+            user: username,
+            redirectTo: '/'
+        });
+    }
+    
+    // Failed login attempt
+    console.warn(`[Auth] ❌ Failed login attempt for user: '${username}' from IP: ${req.ip}`);
+    
+    return res.status(401).json({
+        success: false,
+        message: 'Invalid username or password'
+    });
+});
+
+// POST /api/logout - Handle logout
+app.post('/api/logout', (req, res) => {
+    const user = req.session.user;
+    const sessionId = req.sessionID;
+    
+    req.session.destroy((err) => {
+        if (err) {
+            console.error('[Auth] Error destroying session:', err);
+            return res.status(500).json({ 
+                success: false, 
+                error: 'Logout failed' 
+            });
+        }
+        
+        console.log(`[Auth] User '${user}' logged out (Session: ${sessionId})`);
+        res.clearCookie('connect.sid');
+        res.json({ 
+            success: true, 
+            message: 'Logged out successfully' 
+        });
+    });
+});
+
+// GET /api/auth/status - Check authentication status
+app.get('/api/auth/status', (req, res) => {
+    if (req.session && req.session.isAuthenticated) {
+        res.json({
+            isAuthenticated: true,
+            user: req.session.user,
+            loginTime: req.session.loginTime,
+            sessionAge: req.session.loginTime ? 
+                Math.floor((Date.now() - new Date(req.session.loginTime).getTime()) / 1000 / 60) : 0
+        });
+    } else {
+        res.json({ isAuthenticated: false });
+    }
+});
+
+// Serve login page (must be before static file serving)
+app.get('/login', (req, res) => {
+    res.sendFile(path.join(__dirname, '../public/login.html'));
+});
 
 // =============================================================================
 // STATIC FILE SERVING - Robust frontend loading
@@ -947,18 +753,18 @@ app.get('/', (req, res) => {
         
         if (!found) {
             res.status(404).send(`
-                <html>
-                <body style="font-family: Arial, sans-serif; padding: 50px; text-align: center;">
-                    <h1>⚠️ Frontend Not Found</h1>
-                    <p>Could not locate <code>index.html</code></p>
-                    <p>Searched in:</p>
-                    <ul style="text-align: left; display: inline-block;">
-                        ${searchPaths.map(p => `<li><code>${p}</code></li>`).join('')}
-                    </ul>
-                    <hr>
-                    <p><strong>API Status:</strong> <a href="/api/health">Check Health</a></p>
-                </body>
-                </html>
+                
+                
+                    ⚠️ Frontend Not Found
+                    Could not locate index.html
+                    Searched in:
+                    
+                        ${searchPaths.map(p => `${p}`).join('')}
+                    
+                    
+                    API Status: Check Health
+                
+                
             `);
         }
     }
@@ -976,9 +782,7 @@ app.get('/api/health', (req, res) => {
         memory: process.memoryUsage(),
         downloads: {
             dir: DOWNLOADS_DIR,
-            exists: fs.existsSync(DOWNLOADS_DIR),
-            fileCount: downloadedVideos.size,
-            indexedFiles: downloadedFilesIndex.size
+            exists: fs.existsSync(DOWNLOADS_DIR)
         },
         ffmpeg: FFMPEG_AVAILABLE,
         cookies: isCookiesFileValid()
@@ -1057,9 +861,7 @@ app.get('/api/settings', (req, res) => {
             resolvedPath: resolvedPath,
             dirExists: fs.existsSync(resolvedPath),
             fileCount: fileCount,
-            recentFiles: recentFiles,
-            downloadedVideosCount: downloadedVideos.size,
-            indexedFilesCount: downloadedFilesIndex.size
+            recentFiles: recentFiles
         }
     });
 });
@@ -1160,160 +962,6 @@ app.post('/api/settings/test-folder', (req, res) => {
                 path: testPath,
                 error: error.message
             }
-        });
-    }
-});
-
-// =============================================================================
-// ⭐ NEW: DOWNLOAD SYNC ENDPOINT - Get list of all downloaded files
-// =============================================================================
-
-/**
- * GET /api/downloaded-files
- * Returns comprehensive list of all files in download folder
- * Frontend uses this to sync video status!
- * ⭐ NEW: Supports ?force=1 to force re-scan
- */
-app.get('/api/downloaded-files', (req, res) => {
-    const forceRescan = req.query.force === '1' || req.query.force === 'true';
-    
-    console.log('\n[Download Sync] GET /api/downloaded-files - Frontend requesting file list');
-    if (forceRescan) {
-        console.log('[Download Sync] ⚡ FORCE RE-SCAN requested!');
-    }
-    
-    try {
-        // ⭐ FIXED: Always re-scan to get latest state (or when forced)
-        if (forceRescan || downloadedFilesIndex.size === 0) {
-            console.log('[Download Sync] Scanning downloads directory...');
-            scanExistingDownloads();
-        }
-        
-        // Build comprehensive response
-        const files = Array.from(downloadedFilesIndex.values()).map(fileInfo => ({
-            filename: fileInfo.filename,
-            originalName: fileInfo.originalName,
-            size: fileInfo.size,
-            sizeMB: fileInfo.sizeMB,
-            modified: fileInfo.modified,
-            modifiedISO: fileInfo.modified.toISOString(),
-            path: fileInfo.path,
-            channelFolder: fileInfo.channelFolder  // ⭐ NEW: Include channel info
-        }));
-        
-        // Sort by modification date (newest first)
-        files.sort((a, b) => new Date(b.modified) - new Date(a.modified));
-        
-        const response = {
-            success: true,
-            timestamp: new Date().toISOString(),
-            downloadsDir: DOWNLOADS_DIR,
-            summary: {
-                totalFiles: files.length,
-                totalSizeMB: files.reduce((sum, f) => sum + f.sizeMB, 0).toFixed(2),
-                indexedForMatching: downloadedFilesIndex.size,
-                forceRescanned: forceRescan
-            },
-            files: files
-        };
-        
-        console.log(`[Download Sync] Returning ${files.length} files to frontend`);
-        console.log(`[Download Sync] Summary: ${response.summary.totalFiles} files, ${response.summary.totalSizeMB} MB`);
-        console.log(`[Download Sync] ⚠️ IMPORTANT: If totalFiles=0 but you have files, check folder permissions!`);
-        
-        res.json(response);
-        
-    } catch (error) {
-        console.error('[Download Sync] Error:', error);
-        res.status(500).json({
-            success: false,
-            error: 'Failed to get downloaded files: ' + error.message
-        });
-    }
-});
-
-/**
- * POST /api/downloaded-files/check
- * Check specific videos against downloaded files (including channel folders!)
- * Body: { videos: [{ id, title }], channelName?: string }
- * Returns: { results: [{ id, status, fileInfo }] }
- */
-app.post('/api/downloaded-files/check', (req, res) => {
-    console.log('\n[Download Sync] POST /api/downloaded-files/check - Batch status check');
-    
-    try {
-        const { videos, channelName } = req.body;  // ⭐ NEW: Accept channelName
-        
-        if (!videos || !Array.isArray(videos)) {
-            return res.status(400).json({
-                success: false,
-                error: 'videos array required'
-            });
-        }
-        
-        console.log(`[Download Sync] Checking ${videos.length} videos against ${downloadedFilesIndex.size} indexed files`);
-        if (channelName) {
-            console.log(`[Download Sync] Channel filter: ${channelName}`);
-        }
-        
-        const results = videos.map(video => {
-            // ⭐ NEW: If channelName provided, prioritize matching in that channel's folder
-            let statusResult;
-            
-            if (channelName) {
-                // First try to find in specific channel folder
-                statusResult = getVideoStatusInChannel(
-                    video.id || video.videoId, 
-                    video.title, 
-                    channelName
-                );
-                
-                // If not found in channel, fall back to global search
-                if (statusResult.status === 'new') {
-                    statusResult = getVideoStatus(video.id || video.videoId, video.title);
-                }
-            } else {
-                // No channel specified - search everywhere
-                statusResult = getVideoStatus(video.id || video.videoId, video.title);
-            }
-            
-            return {
-                id: video.id || video.videoId,
-                title: video.title,
-                status: statusResult.status,
-                fileInfo: statusResult.fileInfo ? {
-                    filename: statusResult.fileInfo.filename,
-                    sizeMB: statusResult.fileInfo.sizeMB,
-                    modified: statusResult.fileInfo.modifiedISO || statusResult.fileInfo.modified?.toISOString(),
-                    channelFolder: statusResult.fileInfo.channelFolder || null  // ⭐ NEW: Include channel info
-                } : null,
-                matchedBy: statusResult.matchedBy || null,
-                similarity: statusResult.similarity || null
-            };
-        });
-        
-        // Count statuses
-        const summary = {
-            total: results.length,
-            new: results.filter(r => r.status === 'new').length,
-            downloaded: results.filter(r => r.status === 'downloaded').length,
-            skipped: results.filter(r => r.status === 'skipped').length
-        };
-        
-        console.log(`[Download Sync] Results: ${summary.downloaded} downloaded, ${summary.new} new, ${summary.skipped} skipped`);
-        
-        res.json({
-            success: true,
-            timestamp: new Date().toISOString(),
-            summary: summary,
-            results: results
-        });
-        
-    } catch (error) {
-        console.error('[Download Sync] Check error:', error);
-        res.status(500).json({
-            success: false,
-            error: 'Failed to check videos: ' + error.message
         });
     }
 });
@@ -1515,67 +1163,25 @@ app.post('/api/download', async (req, res) => {
         console.log('[Download] Output directory:', outputDir);
 
         const downloadId = uuidv4();
-        const safeFilename = (filename || `video_${downloadId}`).replace(/[^a-zA-Z0-9._-]/g, '_');
-        const outputFilename = safeFilename.endsWith('.mp4') ? safeFilename : `${safeFilename}.mp4`;
-        const outputPath = path.join(outputDir, outputFilename);  // ⭐ CHANGED: Use outputDir instead of DOWNLOADS_DIR
+        let safeFilename = (filename || `video_${downloadId}`).replace(/[^a-zA-Z0-9._-]/g, '_');
+        let outputFilename = safeFilename.endsWith('.mp4') ? safeFilename : `${safeFilename}.mp4`;
+        
+        // ⭐ MODIFICATION 3: Apply duplicate filename handler
+        outputFilename = getUniqueFilename(outputDir, outputFilename);
+        
+        const outputPath = path.join(outputDir, outputFilename);
 
         console.log('[Download] Creating download job:');
         console.log('   - Download ID:', downloadId);
         console.log('   - Output file:', outputFilename);
         console.log('   - Full path:', outputPath);
 
-        // ⭐ NEW: Check if file already exists (skip download if so)
-        const existingFile = checkFileExists(outputFilename);
-        const videoTitle = req.body.title || filename || `video_${videoId}`;
-        
-        // ⭐ ENHANCED: Also check by title (fuzzy match for renamed files!)
-        const titleCheck = getVideoStatus(videoId, videoTitle);
-        
-        if (existingFile.exists || titleCheck.status === 'downloaded') {
-            const fileInfo = titleCheck.status === 'downloaded' ? titleCheck.fileInfo : existingFile;
-            
-            console.log('\n[Download] ⚠️ FILE ALREADY EXISTS - SKIPPING DOWNLOAD');
-            console.log('[Download] Matched by:', titleCheck.matchedBy || 'exact_filename');
-            if (titleCheck.similarity) {
-                console.log('[Download] Similarity:', (titleCheck.similarity * 100).toFixed(0) + '%');
-            }
-            console.log('[Download] Existing file:', fileInfo?.filename);
-            console.log('[Download] File size:', fileInfo?.sizeMB, 'MB');
-            console.log('[Download] Last modified:', fileInfo?.modified);
-            
-            // Mark as downloaded in tracking
-            downloadedVideos.add(videoId);
-            downloadedVideos.add(fileInfo?.filename);
-            
-            // Return immediate success with "skipped" status
-            return res.status(200).json({
-                success: true,
-                jobId: downloadId,
-                status: 'skipped',
-                message: 'File already exists, skipped download',
-                download: {
-                    id: downloadId,
-                    url: videoUrl,
-                    filename: fileInfo?.filename,
-                    status: 'skipped',
-                    progress: 100,
-                    size: fileInfo?.sizeMB,
-                    sizeMB: fileInfo?.sizeMB,
-                    path: fileInfo?.path,
-                    reason: 'already_exists',
-                    matchedBy: titleCheck.matchedBy || 'filename',
-                    similarity: titleCheck.similarity || null,
-                    skippedAt: new Date().toISOString()
-                }
-            });
-        }
-
         const download = downloadManager.add({
             id: downloadId,
             url: videoUrl,
             videoId: videoId,
             channelId: channelId,
-            title: title || null,  // ⭐ ADD TITLE FOR RENAME!
+            title: title || null,
             filename: outputFilename,
             outputPath: outputPath,
             format: format || 'best',
@@ -1591,7 +1197,7 @@ app.post('/api/download', async (req, res) => {
         
         // Start SMART DOWNLOAD asynchronously (analyze formats → pick lowest → download)
         setImmediate(() => {
-            executeSmartDownload(downloadId, videoUrl, outputPath, title || videoTitle);
+            executeSmartDownload(downloadId, videoUrl, outputPath, title || videoId);
         });
 
         console.log('[Download] 📤 Response sent to frontend (job running in background)');
@@ -1630,15 +1236,7 @@ app.get('/api/channels', (req, res) => {
     
     const channels = Array.from(savedChannels.values()).map(ch => ({
         ...ch,
-        // Recalculate current download status
-        videos: (ch.videos || []).map(video => {
-            const status = getVideoStatus(video.id, video.title);
-            return {
-                ...video,
-                downloadStatus: status.status,
-                ...(status.fileInfo ? { fileSize: status.fileInfo.sizeMB, filePath: status.fileInfo.path } : {})
-            };
-        })
+        videos: (ch.videos || []).map(video => ({ ...video }))
     }));
     
     res.json({
@@ -1709,29 +1307,10 @@ app.post('/api/channels', async (req, res) => {
         console.log('[Channels] Videos found:', channelData.videos.length);
         console.log('[Channels] Live videos found:', channelData.liveVideos.length);
         
-        // ⭐ NEW: Add download status to each video using ENHANCED fuzzy matching
-        const videosWithStatus = channelData.videos.map(video => {
-            const statusResult = getVideoStatus(video.id || video.videoId, video.title);
-            
-            return {
-                ...video,
-                downloadStatus: statusResult.status,  // 'new' | 'downloaded' | 'skipped'
-                downloadedAt: statusResult.fileInfo?.modified || null,
-                fileSize: statusResult.fileInfo?.sizeMB || null,
-                filePath: statusResult.fileInfo?.path || null,
-                matchedBy: statusResult.matchedBy || null,  // ⭐ NEW: How it was matched
-                similarity: statusResult.similarity || null  // ⭐ NEW: Confidence score
-            };
-        });
-        
-        // Count statuses for summary
-        const newCount = videosWithStatus.filter(v => v.downloadStatus === 'new').length;
-        const downloadedCount = videosWithStatus.filter(v => v.downloadStatus === 'downloaded').length;
-        
-        console.log('\n[Channels] 📊 Video status breakdown (with fuzzy matching):');
-        console.log('   ✨ New (not downloaded):', newCount);
-        console.log('   ✅ Already downloaded:', downloadedCount);
-        console.log('   📁 Indexed files available:', downloadedFilesIndex.size);
+        // Create channel object (without sync/badge related fields - MODIFICATION 1)
+        const videosClean = channelData.videos.map(video => ({
+            ...video
+        }));
         
         // Create channel object
         const channel = {
@@ -1740,16 +1319,11 @@ app.post('/api/channels', async (req, res) => {
             url: channelUrl,
             name: name || channelIdFinal,
             videoCount: channelData.videos.length + channelData.liveVideos.length,
-            videos: videosWithStatus,  // ← Use videos WITH STATUS
+            videos: videosClean,
             liveVideos: channelData.liveVideos,
             addedAt: new Date().toISOString(),
             lastChecked: new Date().toISOString(),
-            status: 'active',
-            stats: {
-                total: videosWithStatus.length,
-                new: newCount,
-                downloaded: downloadedCount
-            }
+            status: 'active'
         };
         
         // Save to in-memory storage
@@ -1764,19 +1338,11 @@ app.post('/api/channels', async (req, res) => {
         res.status(201).json({
             success: true,
             message: 'Channel added successfully',
-            channel: channel,  // ← Include channel object at top level
-            channels: [channel],  // ← Also in array for loadChannelsFromServer()
+            channel: channel,
+            channels: [channel],
             videos: channelData.videos,
             liveVideos: channelData.liveVideos,
-            totalVideos: channelData.videos.length + channelData.liveVideos.length,
-            // ⭐ NEW: Include sync info for frontend
-            syncInfo: {
-                totalVideos: videosWithStatus.length,
-                newVideos: newCount,
-                alreadyDownloaded: downloadedCount,
-                indexedFiles: downloadedFilesIndex.size,
-                matchingMethod: 'fuzzy_title'  // Tell frontend we used fuzzy matching
-            }
+            totalVideos: channelData.videos.length + channelData.liveVideos.length
         });
         
     } catch (error) {
@@ -1821,6 +1387,111 @@ app.delete('/api/channels/:id', (req, res) => {
         });
     }
 });
+
+// =============================================================================
+// MODIFICATION 2: VIDEO COUNT COMPARISON FEATURE
+// =============================================================================
+
+// GET /api/channels/:id/stats - Get video count comparison
+app.get('/api/channels/:id/stats', async (req, res) => {
+    try {
+        const channelId = req.params.id;
+        
+        // Find channel in data
+        const channel = savedChannels.get(channelId) || 
+                       Array.from(savedChannels.values()).find(c => c.id === channelId || c.channelId === channelId || c.youtubeId === channelId);
+        
+        if (!channel) {
+            return res.status(404).json({ success: false, error: 'Channel not found' });
+        }
+        
+        // 1. Get YouTube video count using yt-dlp
+        const youtubeCount = await getYoutubeVideoCount(channel.url);
+        
+        // 2. Get downloaded files count
+        const downloadedCount = getDownloadedFilesCount(channel.name || channelId);
+        
+        // 3. Calculate stats
+        const missingCount = Math.max(0, youtubeCount - downloadedCount);
+        const progressPercent = youtubeCount > 0 ? ((downloadedCount / youtubeCount) * 100).toFixed(1) : 0;
+        
+        res.json({
+            success: true,
+            channelId: channelId,
+            channelName: channel.name || 'Unknown Channel',
+            stats: {
+                youtubeTotal: youtubeCount,
+                downloadedCount: downloadedCount,
+                missingCount: missingCount,
+                progressPercent: parseFloat(progressPercent),
+                lastChecked: new Date().toISOString()
+            }
+        });
+        
+    } catch (error) {
+        console.error('[Stats] Error getting channel stats:', error.message);
+        res.status(500).json({ 
+            success: false, 
+            error: 'Failed to get channel stats',
+            details: error.message 
+        });
+    }
+});
+
+// Helper: Count videos on YouTube using yt-dlp
+async function getYoutubeVideoCount(channelUrl) {
+    return new Promise((resolve, reject) => {
+        const cmd = `yt-dlp --flat-playlist --print "%(id)s" "${channelUrl}" 2>/dev/null | wc -l`;
+        
+        exec(cmd, (error, stdout, stderr) => {
+            if (error) {
+                // If yt-dlp fails, return 0 or reject
+                console.error('[Stats] yt-dlp error:', error.message);
+                resolve(0);  // Graceful fallback
+            }
+            
+            const count = parseInt(stdout.trim(), 10);
+            resolve(isNaN(count) ? 0 : count);
+        });
+    });
+}
+
+// Helper: Count downloaded files in channel folder
+function getDownloadedFilesCount(channelName) {
+    try {
+        const downloadsDir = path.join(DOWNLOADS_DIR, channelName, 'Videos');
+        
+        // Also check the channel root folder
+        const channelDir = path.join(DOWNLOADS_DIR, channelName);
+        let dirToCheck = downloadsDir;
+        
+        if (!fs.existsSync(downloadsDir) && fs.existsSync(channelDir)) {
+            dirToCheck = channelDir;
+        } else if (!fs.existsSync(downloadsDir) && !fs.existsSync(channelDir)) {
+            return 0;
+        }
+        
+        if (!fs.existsSync(dirToCheck)) {
+            return 0;
+        }
+        
+        const files = fs.readdirSync(dirToCheck);
+        // Count only video files (filter out partial downloads, .tmp files, etc.)
+        const videoFiles = files.filter(file => {
+            const ext = path.extname(file).toLowerCase();
+            return ['.mp4', '.webm', '.mkv', '.avi', '.mov'].includes(ext) && 
+                   !file.startsWith('.') && 
+                   !file.includes('.part') &&
+                   !file.includes('.tmp') &&
+                   !file.includes('.ytdl');
+        });
+        
+        return videoFiles.length;
+    } catch (error) {
+        console.error('[Stats] Error counting downloaded files:', error.message);
+        return 0;
+    }
+}
 
 // =============================================================================
 // DOWNLOAD QUEUE ENDPOINTS
@@ -1935,22 +1606,8 @@ function executeSmartDownload(downloadId, videoUrl, outputPath, videoTitle) {
                 } : {})
             });
 
-            // Track as downloaded
-            downloadedVideos.add(download.videoId || downloadId);
-            if (renameResult.filename) {
-                downloadedVideos.add(renameResult.filename);
-                
-                // Update the files index for future matching
-                const normalizedName = normalizeForMatch(renameResult.filename.replace(/\.[^.]+$/, ''));
-                downloadedFilesIndex.set(normalizedName, {
-                    filename: renameResult.filename,
-                    path: renameResult.path || outputPath,
-                    size: renameResult.size || 0,
-                    sizeMB: Math.round((renameResult.size || 0) / 1024 / 1024 * 100) / 100,
-                    modified: new Date(),
-                    originalName: renameResult.filename.replace(/\.[^.]+$/, '')
-                });
-            }
+            console.log(`[Smart Download] ✅ Download job ${downloadId} completed successfully`);
+
         })
         .catch(error => {
             console.error(`[Smart Download] ❌ Error:`, error.message);
@@ -2100,7 +1757,7 @@ async function renameDownloadedFile(downloadObj, originalPath) {
         
         // Sanitize filename (remove invalid characters)
         let sanitizedTitle = videoTitle
-            .replace(/[<>:"/\\|?*]/g, '-')  // Replace invalid chars with hyphen
+            .replace(/[:"/\\|?*]/g, '-')  // Replace invalid chars with hyphen
             .replace(/\s+/g, ' ')             // Collapse multiple spaces
             .trim();
         
@@ -2144,7 +1801,7 @@ async function renameDownloadedFile(downloadObj, originalPath) {
             }
         }
         
-        // Handle duplicate filenames
+        // Handle duplicate filenames - using the same logic as getUniqueFilename
         let finalNewPath = newPath;
         let finalNewFilename = newFilename;
         let counter = 1;
@@ -2398,7 +2055,7 @@ app.post('/api/download/batch', async (req, res) => {
     console.log('='.repeat(80));
 
     try {
-        const { videos, format, quality, channelId, channelName } = req.body;  // ⭐ ADDED: channelName
+        const { videos, format, quality, channelId, channelName } = req.body;
 
         if (!videos || !Array.isArray(videos) || videos.length === 0) {
             return res.status(400).json({
@@ -2429,47 +2086,15 @@ app.post('/api/download/batch', async (req, res) => {
 
             console.log(`\n[Batch Download] Processing [${i + 1}/${videos.length}]: ${videoTitle.substring(0, 50)}...`);
 
-            // ⭐ Check if already downloaded (using enhanced fuzzy matching!)
-            const statusCheck = getVideoStatus(videoId, videoTitle);
-            
-            if (statusCheck.status === 'downloaded') {
-                console.log(`[Batch Download] ⏭️ Skipping (already downloaded): ${videoTitle.substring(0, 40)}`);
-                skippedCount++;
-                results.push({
-                    index: i,
-                    videoId: videoId,
-                    title: videoTitle,
-                    status: 'skipped',
-                    reason: 'already_downloaded',
-                    fileInfo: statusCheck.fileInfo ? {
-                        filename: statusCheck.fileInfo.filename,
-                        sizeMB: statusCheck.fileInfo.sizeMB
-                    } : null
-                });
-                continue;
-            }
-
             // Create download job
             const downloadId = uuidv4();
             const safeTitle = videoTitle.replace(/[^a-zA-Z0-9._-]/g, '_').substring(0, 100);
-            const outputFilename = `${safeTitle}_${downloadId}.mp4`;
-            const outputPath = path.join(outputDir, outputFilename);  // ⭐ CHANGED: Use outputDir
-
-            // Double-check file doesn't exist
-            const existingFile = checkFileExists(outputFilename);
-            if (existingFile.exists) {
-                console.log(`[Batch Download] ⏭️ Skipping (file exists): ${outputFilename}`);
-                skippedCount++;
-                results.push({
-                    index: i,
-                    videoId: videoId,
-                    title: videoTitle,
-                    status: 'skipped',
-                    reason: 'file_exists',
-                    fileInfo: existingFile
-                });
-                continue;
-            }
+            let outputFilename = `${safeTitle}_${downloadId}.mp4`;
+            
+            // ⭐ MODIFICATION 3: Apply duplicate filename handler for batch downloads
+            outputFilename = getUniqueFilename(outputDir, outputFilename);
+            
+            const outputPath = path.join(outputDir, outputFilename);
 
             // Add to download manager
             const download = downloadManager.add({
@@ -2551,9 +2176,7 @@ app.get('/api/system/status', (req, res) => {
             exists: fs.existsSync(DOWNLOADS_DIR),
             activeCount: activeDownloads.length,
             completedCount: completedDownloads.length,
-            totalCount: downloadManager.getAll().length,
-            trackedVideos: downloadedVideos.size,
-            indexedFiles: downloadedFilesIndex.size
+            totalCount: downloadManager.getAll().length
         },
         channels: {
             saved: savedChannels.size
@@ -2641,7 +2264,6 @@ app.use((req, res) => {
     console.log('   POST  /api/channels');
     console.log('   DELETE /api/channels/:id');
     console.log('   POST  /api/channels/:id/check');
-    console.log('   GET  /api/channel/info');
     console.log('   POST  /api/video/info');
     console.log('   POST  /api/download');           // ← MAIN DOWNLOAD ENDPOINT!
     console.log('   POST  /api/download/start');
@@ -2653,9 +2275,11 @@ app.use((req, res) => {
     console.log('   GET  /api/download/list');
     console.log('   GET  /api/download-queue');      // ← Queue status (frontend polls!)
     console.log('   DELETE /api/download-queue');    // ← Clear queue
-    console.log('   GET  /api/downloaded-files');    // ← ⭐ NEW: Get downloaded files!
-    console.log('   POST  /api/downloaded-files/check'); // ⭐ NEW: Batch check videos!
+    console.log('   GET  /api/channels/:id/stats');  // ← Video count comparison (NEW!)
     console.log('   GET  /api/system/status');
+    console.log('   POST  /api/login');              // ← Authentication
+    console.log('   POST  /api/logout');             // ← Authentication
+    console.log('   GET  /api/auth/status');         // ← Auth status
     console.log('');
     
     res.status(404).json({ 
@@ -2672,9 +2296,12 @@ app.use((req, res) => {
             '/api/download/batch',         // ← BATCH DOWNLOAD!
             '/api/download/start',
             '/api/downloads',
-            '/api/downloaded-files',       // ← ⭐ NEW: Download sync!
-            '/api/downloaded-files/check', // ⭐ NEW: Batch check!
-            '/api/system/status'
+            '/api/download-queue',
+            '/api/system/status',
+            '/api/channels/:id/stats',     // ← Video count comparison (NEW!)
+            '/api/login',                  // ← Auth
+            '/api/logout',                 // ← Auth
+            '/api/auth/status'             // ← Auth status
         ]
     });
 });
@@ -2682,6 +2309,9 @@ app.use((req, res) => {
 // =============================================================================
 // SERVER STARTUP
 // =============================================================================
+
+// Validate authentication configuration FIRST
+validateAuthConfig();
 
 // Convert cookie path to native format on startup
 getNativeCookiePath();
@@ -2714,7 +2344,7 @@ app.listen(PORT, () => {
     console.log(`║  📁 Downloads:  ${DOWNLOADS_DIR}        ║`);
     console.log(`║  🎬 FFmpeg:     ${FFMPEG_AVAILABLE ? '✅ Installed (merging enabled)' : '⚠️ Not found (using fallback)'}        ║`);
     console.log(`║  🍪 Cookies:    ${isCookiesFileValid() ? '✅ Valid' : '⚠️ Using browser'}                              ║`);
-    console.log(`║  📊 Sync Index: ${downloadedFilesIndex.size} files indexed for matching          ║`);
+    console.log('║  🔐 Auth:       ✅ Enabled (Session-based)                        ║');
     console.log('║                                                              ║');
     console.log('╠══════════════════════════════════════════════════════════════╣');
     console.log('║  Available API Endpoints:                                   ║');
@@ -2724,15 +2354,15 @@ app.listen(PORT, () => {
     console.log('║  POST   /api/channels          Load channel videos             ║');
     console.log('║  POST   /api/download           Download single video           ║');
     console.log('║  POST   /api/download/batch     Batch download (sequential)     ║');
-    console.log('║  GET    /api/downloaded-files   ⭐ List downloaded files        ║');
-    console.log('║  POST   /api/downloaded-files/check ⭐ Check video status      ║');
     console.log('║  GET    /api/files              List all downloaded files        ║');
     console.log('║  GET    /api/download-file/:id  Download file by ID            ║');
+    console.log('║  GET    /api/channels/:id/stats Video count comparison (NEW!)  ║');
     console.log('╚══════════════════════════════════════════════════════════════╝');
     console.log('');
-    console.log('⭐ DOWNLOAD SYNC FEATURE ENABLED');
-    console.log('   - Fuzzy title matching for renamed files');
-    console.log('   - Automatic skip of already-downloaded videos');
-    console.log('   - Real-time status badges (green=done, red=new)');
+    console.log('⭐ FEATURES ENABLED:');
+    console.log('   - ✅ Authentication (Session-based, 2-day expiry)');
+    console.log('   - ✅ Rate limiting (5 login attempts per 15 min)');
+    console.log('   - ✅ Video count comparison (YouTube vs Downloaded)');
+    console.log('   - ✅ Duplicate filename handling');
     console.log('');
 });

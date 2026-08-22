@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>YouTube Channel Downloader - Download Sync</title>
+    <title>YouTube Channel Downloader</title>
     <style>
         * {
             margin: 0;
@@ -29,6 +29,37 @@
             margin-bottom: 15px;
             font-size: 1.8em;
             text-shadow: 2px 2px 4px rgba(0,0,0,0.3);
+        }
+
+        /* Header with logout */
+        .header-bar {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 15px;
+            flex-wrap: wrap;
+            gap: 10px;
+        }
+
+        .header-bar h1 {
+            margin-bottom: 0;
+        }
+
+        .btn-logout {
+            background: linear-gradient(135deg, #eb3349 0%, #f45c43 100%);
+            color: white;
+            padding: 10px 20px;
+            border: none;
+            border-radius: 8px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s;
+            font-size: 13px;
+        }
+
+        .btn-logout:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 5px 15px rgba(235, 51, 73, 0.4);
         }
 
         /* COMPACT: Main layout grid for PC */
@@ -69,7 +100,7 @@
             color: #333;
         }
 
-        /* ENHANCED STATS with download sync info */
+        /* Stats display */
         .stats {
             display: flex;
             gap: 10px;
@@ -91,11 +122,10 @@
             border: 2px solid #ffe0b2;
         }
         
-        .stat-new { 
-            background: #ffebee; 
-            color: #d32f2f; 
-            border: 2px solid #ffcdd2;
-            animation: pulse-red 2s infinite;
+        .stat-youtube { 
+            background: #e3f2fd; 
+            color: #1976d2; 
+            border: 2px solid #bbdefb;
         }
         
         .stat-downloaded { 
@@ -104,21 +134,10 @@
             border: 2px solid #c8e6c9;
         }
         
-        .stat-sync { 
-            background: #e3f2fd; 
-            color: #1976d2; 
-            border: 2px solid #bbdefb;
-            cursor: pointer;
-        }
-        
-        .stat-sync:hover {
-            background: #bbdefb;
-            transform: scale(1.05);
-        }
-
-        @keyframes pulse-red {
-            0%, 100% { box-shadow: 0 0 0 0 rgba(211, 47, 47, 0.4); }
-            50% { box-shadow: 0 0 0 8px rgba(211, 47, 47, 0); }
+        .stat-missing { 
+            background: #ffebee; 
+            color: #d32f2f; 
+            border: 2px solid #ffcdd2;
         }
 
         /* Channel Input Section */
@@ -179,15 +198,9 @@
             color: white;
         }
 
-        /* Sync button */
-        .btn-sync {
+        .btn-info {
             background: linear-gradient(135deg, #2196F3 0%, #21CBF3 100%);
             color: white;
-        }
-
-        .btn-sync:hover {
-            transform: translateY(-2px);
-            box-shadow: 0 5px 15px rgba(33, 150, 243, 0.4);
         }
 
         button:disabled {
@@ -202,7 +215,7 @@
             overflow-y: auto;
         }
 
-        /* Video items with status-based styling - COMPACT */
+        /* Video items */
         .video-item {
             display: grid;
             grid-template-columns: 24px 1fr auto;
@@ -235,28 +248,6 @@
             transform: translateX(2px);
         }
 
-        /* STATUS-BASED STYLING */
-        .video-item.status-new {
-            background: linear-gradient(135deg, #fff5f5 0%, #ffffff 100%);
-            border-color: #ffcdd2;
-            border-left-width: 3px;
-        }
-        
-        .video-item.status-new::before {
-            background: #d32f2f;
-            animation: pulse-left 2s infinite;
-        }
-
-        .video-item.status-downloaded {
-            background: linear-gradient(135deg, #f1f8e9 0%, #ffffff 100%);
-            border-color: #c8e6c9;
-            opacity: 0.85;
-        }
-        
-        .video-item.status-downloaded::before {
-            background: #388e3c;
-        }
-
         .video-item.downloading {
             background: #e3f2fd;
             border-color: #2196f3;
@@ -286,11 +277,6 @@
             border-color: #f44336;
         }
 
-        @keyframes pulse-left {
-            0%, 100% { opacity: 1; }
-            50% { opacity: 0.5; }
-        }
-
         @keyframes pulse-blue {
             0%, 100% { box-shadow: 0 0 0 0 rgba(33, 150, 243, 0.4); }
             50% { box-shadow: 0 0 0 6px rgba(33, 150, 243, 0); }
@@ -304,12 +290,6 @@
             flex-shrink: 0;
             align-self: start;
             margin-top: 2px;
-        }
-
-        /* Checkbox styling for downloaded (disabled look) */
-        .video-checkbox:disabled {
-            opacity: 0.5;
-            cursor: not-allowed;
         }
 
         .video-info {
@@ -326,18 +306,6 @@
             font-size: 13px;
         }
 
-        /* Title styling based on status */
-        .status-downloaded .video-title {
-            color: #2e7d32;
-            text-decoration: line-through;
-            opacity: 0.8;
-        }
-
-        .status-new .video-title {
-            color: #c62828;
-            font-weight: 600;
-        }
-
         .video-meta {
             font-size: 0.8em;
             color: #666;
@@ -347,7 +315,7 @@
             flex-wrap: wrap;
         }
 
-        /* ENHANCED STATUS BADGES - COMPACT */
+        /* Status Badge */
         .status-badge {
             padding: 2px 8px;
             border-radius: 12px;
@@ -360,20 +328,6 @@
             gap: 3px;
         }
 
-        /* Prominent status colors */
-        .status-new { 
-            background: linear-gradient(135deg, #d32f2f 0%, #f44336 100%);
-            color: white;
-            box-shadow: 0 2px 8px rgba(211, 47, 47, 0.3);
-            animation: pulse-badge 2s infinite;
-        }
-        
-        .status-downloaded { 
-            background: linear-gradient(135deg, #388e3c 0%, #4caf50 100%);
-            color: white;
-            box-shadow: 0 2px 8px rgba(56, 142, 60, 0.3);
-        }
-        
         .status-downloading { 
             background: linear-gradient(135deg, #1976d2 0%, #2196f3 100%);
             color: white;
@@ -395,17 +349,12 @@
             color: white;
         }
 
-        @keyframes pulse-badge {
-            0%, 100% { transform: scale(1); }
-            50% { transform: scale(1.05); }
-        }
-
         @keyframes pulse {
             0%, 100% { opacity: 1; }
             50% { opacity: 0.7; }
         }
 
-        /* Progress Bar - Enhanced with Animation - COMPACT */
+        /* Progress Bar */
         .progress-container {
             width: 100%;
             margin: 6px 0 0 0;
@@ -435,14 +384,14 @@
             animation: shimmer 2s infinite linear;
         }
         
-        @keyframes shimmer {
-            0% { background-position: 200% 0; }
-            100% { background-position: -200% 0; }
-        }
-        
         .progress-fill.complete {
             background: linear-gradient(90deg, #388e3c 0%, #4caf50 100%);
             animation: pulse-complete 1s ease-out;
+        }
+        
+        @keyframes shimmer {
+            0% { background-position: 200% 0; }
+            100% { background-position: -200% 0; }
         }
         
         @keyframes pulse-complete {
@@ -477,7 +426,7 @@
             color: #757575;
         }
 
-        /* File info display for downloaded videos - COMPACT */
+        /* File info display */
         .file-info {
             margin-top: 4px;
             padding: 5px 8px;
@@ -508,7 +457,7 @@
             gap: 3px;
         }
 
-        /* Renamed filename display - COMPACT */
+        /* Renamed filename display */
         .renamed-filename {
             margin-top: 4px;
             padding: 4px 8px;
@@ -532,7 +481,7 @@
             }
         }
 
-        /* Action Buttons - COMPACT */
+        /* Action Buttons */
         .video-actions {
             display: flex;
             gap: 5px;
@@ -544,7 +493,7 @@
             font-size: 0.8em;
         }
 
-        /* Batch Actions - COMPACT */
+        /* Batch Actions */
         .batch-actions {
             display: flex;
             justify-content: space-between;
@@ -565,12 +514,12 @@
             flex-wrap: wrap;
         }
 
-        /* Download Queue - COMPACT */
+        /* Download Queue */
         .queue-section {
             margin-top: 15px;
         }
 
-        /* Settings Panel - COMPACT */
+        /* Settings Panel */
         .settings-card {
             background: linear-gradient(135deg, #f5f7fa 0%, #c3cfe2 100%);
             border: 2px solid #e0e0e0;
@@ -632,7 +581,7 @@
             border-radius: 8px;
         }
 
-        /* Alert Messages - COMPACT */
+        /* Alert Messages */
         .alert {
             padding: 12px 16px;
             border-radius: 8px;
@@ -671,7 +620,7 @@
             border: 1px solid #bee5eb;
         }
 
-        /* Queue Items - COMPACT */
+        /* Queue Items */
         .queue-item {
             display: flex;
             justify-content: space-between;
@@ -698,40 +647,96 @@
             to { transform: rotate(360deg); }
         }
 
-        /* Sync Summary Banner - COMPACT */
-        .sync-banner {
-            background: linear-gradient(135deg, #e3f2fd 0%, #bbdefb 100%);
-            border: 2px solid #90caf9;
+        /* ==================== MODIFICATION 2: VIDEO COUNT STATS BANNER ==================== */
+        .stats-banner {
+            background: linear-gradient(135deg, #e8f5e9 0%, #c8e6c9 100%);
+            border: 2px solid #81c784;
             border-radius: 10px;
-            padding: 12px 16px;
+            padding: 14px 18px;
             margin-bottom: 12px;
+            display: none;
+        }
+
+        .stats-banner.show {
+            display: block;
+        }
+
+        .stats-banner-header {
             display: flex;
             justify-content: space-between;
             align-items: center;
+            margin-bottom: 12px;
             flex-wrap: wrap;
+            gap: 10px;
+        }
+
+        .stats-banner-title {
+            font-size: 1em;
+            font-weight: 600;
+            color: #2e7d32;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .stats-banner-content {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
             gap: 12px;
         }
 
-        .sync-summary {
-            display: flex;
-            align-items: center;
-            gap: 16px;
-            flex-wrap: wrap;
+        .stat-item {
+            background: white;
+            padding: 12px;
+            border-radius: 8px;
+            text-align: center;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.05);
         }
 
-        .sync-stat {
-            display: flex;
-            align-items: center;
-            gap: 5px;
+        .stat-item-value {
+            font-size: 1.8em;
+            font-weight: 700;
+            color: #333;
+        }
+
+        .stat-item-label {
+            font-size: 0.8em;
+            color: #666;
+            margin-top: 4px;
+        }
+
+        .stat-item.youtube .stat-item-value { color: #1976d2; }
+        .stat-item.downloaded .stat-item-value { color: #388e3c; }
+        .stat-item.missing .stat-item-value { color: #d32f2f; }
+
+        .progress-bar-container {
+            grid-column: 1 / -1;
+            margin-top: 8px;
+        }
+
+        .stats-progress-bar {
+            height: 12px;
+            background: #e0e0e0;
+            border-radius: 6px;
+            overflow: hidden;
+        }
+
+        .stats-progress-fill {
+            height: 100%;
+            background: linear-gradient(90deg, #388e3c 0%, #81c784 100%);
+            border-radius: 6px;
+            transition: width 0.5s ease-out;
+        }
+
+        .stats-progress-text {
+            text-align: center;
             font-size: 0.85em;
-            font-weight: 500;
+            color: #2e7d32;
+            font-weight: 600;
+            margin-top: 4px;
         }
 
-        .sync-stat.new { color: #d32f2f; }
-        .sync-stat.downloaded { color: #388e3c; }
-        .sync-stat.total { color: #f57c00; }
-
-        /* ==================== NEW: DOWNLOAD LOG PANEL ==================== */
+        /* ==================== DOWNLOAD LOG PANEL ==================== */
         .log-panel {
             background: #1e1e1e;
             border-radius: 8px;
@@ -795,7 +800,7 @@
         .log-error { color: #f44336; }
         .log-progress { color: #e91e63; }
 
-        /* ⭐ NEW: Log Tabs */
+        /* Log Tabs */
         .log-tabs {
             display: flex;
             gap: 5px;
@@ -829,7 +834,7 @@
             max-height: 180px;
         }
 
-        /* LIVE SYNC INDICATOR */
+        /* LIVE INDICATOR */
         .live-indicator {
             display: inline-flex;
             align-items: center;
@@ -855,7 +860,7 @@
             50% { opacity: 0.5; transform: scale(0.8); }
         }
 
-        /* Responsive Design - Mobile First, Enhanced for PC */
+        /* Responsive Design */
         @media (max-width: 768px) {
             body {
                 padding: 8px;
@@ -932,15 +937,6 @@
                 justify-content: center;
             }
 
-            .sync-banner {
-                flex-direction: column;
-                text-align: center;
-            }
-
-            .sync-summary {
-                justify-content: center;
-            }
-
             .file-info {
                 flex-direction: column;
                 align-items: flex-start;
@@ -949,9 +945,18 @@
             .main-grid {
                 grid-template-columns: 1fr;
             }
+
+            .header-bar {
+                flex-direction: column;
+                text-align: center;
+            }
+
+            .stats-banner-content {
+                grid-template-columns: 1fr 1fr;
+            }
         }
 
-        /* Tablet screens (769px - 1024px) */
+        /* Tablet screens */
         @media (min-width: 769px) and (max-width: 1024px) {
             .container {
                 max-width: 95%;
@@ -971,7 +976,7 @@
             }
         }
 
-        /* Desktop screens (1025px+) - PC OPTIMIZED */
+        /* Desktop screens */
         @media (min-width: 1025px) {
             .container {
                 max-width: 1600px;
@@ -997,11 +1002,6 @@
             .setting-info {
                 font-size: 11px;
                 padding: 8px 12px;
-            }
-
-            .setting-status {
-                padding: 10px 14px;
-                font-size: 12px;
             }
 
             .stats {
@@ -1038,13 +1038,12 @@
                 border-radius: 8px;
             }
 
-            /* PC: Show more videos in list */
             .video-list {
                 max-height: 550px;
             }
         }
 
-        /* Large desktop screens (1400px+) - WIDESCREEN PC */
+        /* Large desktop screens */
         @media (min-width: 1400px) {
             .container {
                 max-width: 1700px;
@@ -1062,24 +1061,20 @@
             .video-list {
                 max-height: 600px;
             }
-
-            /* PC: Two-column video grid for large screens */
-            .videos-grid {
-                display: grid;
-                grid-template-columns: repeat(auto-fill, minmax(500px, 1fr));
-                gap: 10px;
-            }
         }
     </style>
 </head>
 <body>
     <div class="container">
-        <h1>🎬 YouTube Channel Downloader</h1>
+        <div class="header-bar">
+            <h1>🎬 YouTube Channel Downloader</h1>
+            <button class="btn-logout" onclick="handleLogout()">🚪 Logout</button>
+        </div>
 
         <!-- Alert Messages -->
         <div id="alert" class="alert"></div>
 
-        <!-- Main Grid Layout for PC -->
+        <!-- Main Grid Layout -->
         <div class="main-grid">
             <!-- Left Column: Main Content -->
             <div class="left-column">
@@ -1088,29 +1083,43 @@
                     <div class="card-header">
                         <h2 class="card-title">📺 Load Channel</h2>
                         <span id="liveIndicator" class="live-indicator" style="display: none;">
-                            <span class="live-dot"></span> LIVE SYNC
+                            <span class="live-dot"></span> LIVE
                         </span>
                     </div>
                     
                     <div class="input-group">
                         <input type="text" id="channelInput" placeholder="Enter channel URL or @username (e.g., @kayakalp-i9z)">
                         <button class="btn-primary" onclick="loadChannel()" id="loadBtn">Load Channel</button>
-                        <button class="btn-sync btn-small" onclick="manualSync()" title="Re-check download folder for changes">
-                            🔄 Sync
-                        </button>
                     </div>
                 </div>
 
-                <!-- Sync Status Banner -->
-                <div id="syncBanner" class="sync-banner" style="display: none;">
-                    <div class="sync-summary">
-                        <span class="sync-stat total">📊 Total: <strong id="syncTotal">0</strong></span>
-                        <span class="sync-stat new">🔴 New: <strong id="syncNew">0</strong></span>
-                        <span class="sync-stat downloaded">✅ Downloaded: <strong id="syncDownloaded">0</strong></span>
+                <!-- MODIFICATION 2: Video Count Stats Banner -->
+                <div id="statsBanner" class="stats-banner">
+                    <div class="stats-banner-header">
+                        <span class="stats-banner-title">📊 Video Count Comparison</span>
+                        <button class="btn-info btn-small" onclick="refreshStats()" id="refreshStatsBtn">
+                            🔄 Refresh Stats
+                        </button>
                     </div>
-                    <div style="font-size: 0.8em; color: #1565c0;">
-                        📁 Indexed files: <strong id="syncIndexed">0</strong> | 
-                        Match method: <strong id="syncMethod">-</strong>
+                    <div class="stats-banner-content" id="statsContent">
+                        <div class="stat-item youtube">
+                            <div class="stat-item-value" id="youtubeTotal">-</div>
+                            <div class="stat-item-label">YouTube Total</div>
+                        </div>
+                        <div class="stat-item downloaded">
+                            <div class="stat-item-value" id="downloadedCount">-</div>
+                            <div class="stat-item-label">Downloaded</div>
+                        </div>
+                        <div class="stat-item missing">
+                            <div class="stat-item-value" id="missingCount">-</div>
+                            <div class="stat-item-label">Missing</div>
+                        </div>
+                        <div class="progress-bar-container">
+                            <div class="stats-progress-bar">
+                                <div class="stats-progress-fill" id="statsProgressFill" style="width: 0%"></div>
+                            </div>
+                            <div class="stats-progress-text" id="statsProgressText">Progress: 0%</div>
+                        </div>
                     </div>
                 </div>
 
@@ -1120,11 +1129,6 @@
                         <h2 class="card-title">🎥 Videos</h2>
                         <div class="stats" id="channelStats">
                             <span class="stat-badge stat-total">Total: 0</span>
-                            <span class="stat-badge stat-new">🔴 New: 0</span>
-                            <span class="stat-badge stat-downloaded">✅ Downloaded: 0</span>
-                            <span class="stat-badge stat-sync" onclick="manualSync()" title="Click to re-sync with download folder">
-                                🔄 Sync
-                            </span>
                         </div>
                     </div>
 
@@ -1134,15 +1138,15 @@
 
                     <div class="batch-actions">
                         <div class="batch-info">
-                            <label><input type="checkbox" id="selectAll" onchange="toggleSelectAll()"> Select All (New Only)</label>
+                            <label><input type="checkbox" id="selectAll" onchange="toggleSelectAll()"> Select All</label>
                             <span id="selectedCount">0 selected</span>
                         </div>
                         <div style="display: flex; gap: 8px; flex-wrap: wrap;">
                             <button class="btn-success btn-small" onclick="downloadSelected()" id="downloadSelectedBtn" disabled>
                                 ⬇️ Download Selected
                             </button>
-                            <button class="btn-primary btn-small" onclick="downloadNewOnly()" id="downloadNewBtn">
-                                ✨ Download All New
+                            <button class="btn-primary btn-small" onclick="downloadAll()" id="downloadAllBtn">
+                                ⬇️ Download All
                             </button>
                             <button class="btn-danger btn-small" onclick="clearCompleted()">
                                 🗑️ Clear Completed
@@ -1150,7 +1154,7 @@
                         </div>
                     </div>
 
-                    <!-- NEW: Enhanced Log Panel with Tabs (Download + Server Terminal) -->
+                    <!-- Log Panel with Tabs -->
                     <div class="log-panel" id="logPanel">
                         <div class="log-header">
                             <div class="log-tabs">
@@ -1183,7 +1187,7 @@
                 </div>
             </div>
 
-            <!-- Right Column: Settings (PC Layout) -->
+            <!-- Right Column: Settings -->
             <div class="right-column">
                 <div class="card settings-card">
                     <div class="card-header">
@@ -1202,13 +1206,10 @@
                             <div class="setting-input-group">
                                 <input type="text" 
                                        id="downloadsDirInput" 
-                                       value="C:\Users\Jackle\Downloads\YouTube-Downloader"
-                                       placeholder="C:\Users\Jackle\Downloads\YouTube-Downloader"
+                                       value=""
+                                       placeholder="C:\Users\Username\Downloads\YouTube-Downloader"
                                        class="setting-input">
-                                <button class="btn-primary btn-small" onclick="openFolderPicker()" title="Browse folder">
-                                    📂 Browse
-                                </button>
-                                <button class="btn-success btn-small" onclick="saveDownloadFolder()" title="Save setting">
+                                <button class="btn-primary btn-small" onclick="saveDownloadFolder()" title="Save setting">
                                     💾 Save
                                 </button>
                             </div>
@@ -1217,28 +1218,9 @@
                             </div>
                         </div>
 
-                        <!-- Quick Folder Presets -->
-                        <div class="setting-group">
-                            <label class="setting-label">🚀 Quick Set:</label>
-                            <div style="display: flex; gap: 6px; flex-wrap: wrap;">
-                                <button class="btn-secondary btn-small" onclick="setFolderPreset('downloads')">
-                                    📥 Downloads
-                                </button>
-                                <button class="btn-secondary btn-small" onclick="setFolderPreset('desktop')">
-                                    🖥️ Desktop
-                                </button>
-                                <button class="btn-secondary btn-small" onclick="setFolderPreset('videos')">
-                                    🎬 Videos
-                                </button>
-                                <button class="btn-secondary btn-small" onclick="setFolderPreset('documents')">
-                                    📄 Documents
-                                </button>
-                            </div>
-                        </div>
-
                         <!-- Current Status -->
                         <div class="setting-status" id="folderStatus">
-                            <span>ℹ️ Default: <strong>C:\Users\Jackle\Downloads\YouTube-Downloader</strong></span>
+                            <span>ℹ️ Configure your download folder above</span>
                         </div>
                     </div>
                 </div>
@@ -1247,6 +1229,29 @@
     </div>
 
     <script>
+        // ============================================================
+        // AUTHENTICATION CHECK (Runs First)
+        // ============================================================
+        (async function checkAuth() {
+            try {
+                const response = await fetch('/api/auth/status');
+                if (response.status === 401 || response.status === 403) {
+                    // Not authenticated, redirect to login
+                    window.location.href = '/login';
+                    return;
+                }
+                
+                const data = await response.json();
+                if (!data.isAuthenticated) {
+                    window.location.href = '/login';
+                }
+            } catch (error) {
+                console.error('[Auth] Check failed:', error);
+                // On error, try to redirect to login
+                window.location.href = '/login';
+            }
+        })();
+
         // Global state
         let currentChannel = null;
         let videos = [];
@@ -1256,12 +1261,8 @@
         // API Base URL
         const API_BASE = '';
 
-        // Track last sync time
-        let lastSyncTime = null;
-
         // NEW: Download log system
         let downloadLog = [];
-        const LOG_INTERVAL = 5000; // 5 seconds
         let logIntervalId = null;
 
         // Show alert message
@@ -1277,11 +1278,6 @@
 
         // ==================== LOGGING SYSTEM ====================
         
-        /**
-         * Add entry to download log
-         * @param {string} message - Log message
-         * @param {string} type - log type: info, success, warning, error, progress
-         */
         function addLogEntry(message, type = 'info') {
             const timestamp = new Date().toLocaleTimeString();
             const entry = {
@@ -1292,26 +1288,21 @@
             
             downloadLog.push(entry);
             
-            // Keep only last 200 entries (increased from 100)
             if (downloadLog.length > 200) {
                 downloadLog.shift();
             }
             
             renderLog();
-            scrollToLogBottom();  // ⭐ FIXED: Ensure auto-scroll
+            scrollToLogBottom();
             console.log(`[DownloadLog][${type.toUpperCase()}] ${message}`);
         }
 
-        /**
-         * Render the log panel with auto-scroll fix
-         */
         function renderLog() {
             const container = document.getElementById('logEntries');
             const countEl = document.getElementById('logCount');
             
             countEl.textContent = downloadLog.length;
             
-            // Only update if changed (performance)
             const newHtml = downloadLog.slice(-50).map(entry => `
                 <div class="log-entry" data-time="${entry.time}">
                     <span class="log-time">${entry.time}</span>
@@ -1322,27 +1313,20 @@
             if (container.innerHTML !== newHtml) {
                 container.innerHTML = newHtml;
                 
-                // ⭐ FIXED: Robust auto-scroll using multiple methods
                 requestAnimationFrame(() => {
                     container.scrollTop = container.scrollHeight;
                 });
                 
-                // Fallback: Also scroll after a short delay
                 setTimeout(() => {
                     container.scrollTop = container.scrollHeight;
                 }, 50);
             }
         }
 
-        /**
-         * Manually scroll to bottom (call after adding entries)
-         */
         function scrollToLogBottom() {
             const container = document.getElementById('logEntries');
             if (container) {
-                // Immediate scroll
                 container.scrollTop = container.scrollHeight;
-                // Animated smooth scroll
                 container.scrollTo({
                     top: container.scrollHeight,
                     behavior: 'smooth'
@@ -1350,15 +1334,12 @@
             }
         }
 
-        /**
-         * Toggle log panel collapse/expand
-         */
         function toggleLogPanel() {
             const panel = document.getElementById('logPanel');
             panel.classList.toggle('collapsed');
         }
 
-        // ⭐ NEW: Log tab switching
+        // Log tab switching
         let currentLogTab = 'download';
         let serverLogInterval = null;
         let lastServerLogTime = null;
@@ -1366,15 +1347,12 @@
         function switchLogTab(tab) {
             currentLogTab = tab;
             
-            // Update tab buttons
             document.getElementById('tabDownload').classList.toggle('active', tab === 'download');
             document.getElementById('tabServer').classList.toggle('active', tab === 'server');
             
-            // Show/hide panels
             document.getElementById('downloadLogPanel').style.display = tab === 'download' ? 'block' : 'none';
             document.getElementById('serverLogPanel').style.display = tab === 'server' ? 'block' : 'none';
             
-            // If switching to server tab, fetch logs
             if (tab === 'server') {
                 fetchServerLogs();
                 startServerLogPolling();
@@ -1383,7 +1361,6 @@
             }
         }
 
-        // ⭐ NEW: Fetch server terminal logs
         async function fetchServerLogs() {
             try {
                 const params = new URLSearchParams({
@@ -1396,11 +1373,8 @@
                 
                 if (data.success) {
                     renderServerLogs(data.logs);
-                    
-                    // Update count
                     document.getElementById('serverLogCount').textContent = data.total;
                     
-                    // Update last fetch time for incremental updates
                     if (data.logs.length > 0) {
                         lastServerLogTime = data.logs[data.logs.length - 1].time;
                     }
@@ -1410,7 +1384,6 @@
             }
         }
 
-        // ⭐ NEW: Render server logs in the panel
         function renderServerLogs(logs) {
             const container = document.getElementById('serverLogEntries');
             
@@ -1419,7 +1392,6 @@
                 return;
             }
             
-            // Append new logs (don't replace all to maintain scroll position)
             const newHtml = logs.map(log => {
                 const time = new Date(log.time).toLocaleTimeString();
                 return `
@@ -1430,28 +1402,20 @@
                 `;
             }).join('');
             
-            // If this is first load or cleared, replace; otherwise append
-            if (container.children.length <= 1 || container.innerHTML.includes('Waiting for')) {
+            if (container.children.length <= 1 || container.innerHTML.includes('Waiting')) {
                 container.innerHTML = newHtml;
             } else {
                 container.insertAdjacentHTML('beforeend', newHtml);
             }
             
-            // Auto-scroll to bottom
-            scrollToServerLogBottom();
-        }
-
-        // ⭐ NEW: Scroll server log to bottom
-        function scrollToServerLogBottom() {
-            const container = document.getElementById('serverLogEntries');
-            if (container) {
+            const serverContainer = document.getElementById('serverLogEntries');
+            if (serverContainer) {
                 requestAnimationFrame(() => {
-                    container.scrollTop = container.scrollHeight;
+                    serverContainer.scrollTop = serverContainer.scrollHeight;
                 });
             }
         }
 
-        // ⭐ NEW: Start polling for server logs
         function startServerLogPolling() {
             if (serverLogInterval) return;
             
@@ -1459,10 +1423,9 @@
                 if (currentLogTab === 'server') {
                     fetchServerLogs();
                 }
-            }, 2000);  // Poll every 2 seconds when server tab is active
+            }, 2000);
         }
 
-        // ⭐ NEW: Stop polling for server logs
         function stopServerLogPolling() {
             if (serverLogInterval) {
                 clearInterval(serverLogInterval);
@@ -1470,14 +1433,12 @@
             }
         }
 
-        // ⭐ NEW: Clear current log (download or server)
         function clearLogs() {
             if (currentLogTab === 'download') {
                 downloadLog = [];
                 renderLog();
                 addLogEntry('🗑️ Download log cleared', 'info');
             } else {
-                // Clear server logs via API
                 fetch(`${API_BASE}/api/logs`, { method: 'DELETE' })
                     .then(() => {
                         document.getElementById('serverLogEntries').innerHTML = 
@@ -1489,282 +1450,91 @@
             }
         }
 
-        /**
-         * Start periodic logging of download status
-         * Logs every 5 seconds when downloads are active
-         */
-        function startPeriodicLogging() {
-            if (logIntervalId) return;
-            
-            addLogEntry('🚀 Download monitoring started (5s interval)', 'info');
-            
-            logIntervalId = setInterval(() => {
-                const activeDownloads = videos.filter(v => v.downloadStatus === 'downloading');
-                const completedDownloads = videos.filter(v => v.downloadStatus === 'completed' || v.downloadStatus === 'downloaded');
-                const errorDownloads = videos.filter(v => v.downloadStatus === 'error');
-                
-                if (activeDownloads.length > 0) {
-                    const progressInfo = activeDownloads.map(v => 
-                        `"${v.title.substring(0, 25)}...": ${Math.round(v.progress || 0)}%${v.speed ? ` @ ${v.speed}` : ''}`
-                    ).join(' | ');
-                    
-                    addLogEntry(`⬇️ Active: ${activeDownloads.length} | ${progressInfo}`, 'progress');
-                }
-                
-                // Log any new completions or errors since last check
-                if (completedDownloads.length > 0) {
-                    const recentlyCompleted = completedDownloads.filter(v => !v.logged);
-                    if (recentlyCompleted.length > 0) {
-                        addLogEntry(`✅ Completed: ${recentlyCompleted.map(v => v.title.substring(0, 30)).join(', ')}`, 'success');
-                        recentlyCompleted.forEach(v => v.logged = true);
-                    }
-                }
-                
-                if (errorDownloads.length > 0) {
-                    const recentErrors = errorDownloads.filter(v => !v.errorLogged);
-                    if (recentErrors.length > 0) {
-                        addLogEntry(`❌ Errors: ${recentErrors.map(v => `${v.title.substring(0, 25)}: ${v.error}`).join('; ')}`, 'error');
-                        recentErrors.forEach(v => v.errorLogged = true);
-                    }
-                }
-                
-                // If no active downloads, stop logging
-                if (activeDownloads.length === 0 && completedDownloads.every(v => v.logged)) {
-                    const hasUnloggedErrors = errorDownloads.some(v => !v.errorLogged);
-                    if (!hasUnloggedErrors) {
-                        stopPeriodicLogging();
-                    }
-                }
-                
-            }, LOG_INTERVAL);
-        }
-
-        /**
-         * Stop periodic logging
-         */
-        function stopPeriodicLogging() {
-            if (logIntervalId) {
-                clearInterval(logIntervalId);
-                logIntervalId = null;
-                addLogEntry('⏹️ Download monitoring stopped', 'info');
-            }
-        }
-
-        // ==================== SETTINGS FUNCTIONS ====================
+        // ==================== LOGOUT FUNCTION ====================
         
-        let settingsVisible = true;  // Default to visible on PC
-        function toggleSettings() {
-            const content = document.getElementById('settingsContent');
-            const icon = document.getElementById('settingsToggleIcon');
-            
-            settingsVisible = !settingsVisible;
-            content.style.display = settingsVisible ? 'block' : 'none';
-            icon.textContent = settingsVisible ? '▲' : '▼';
-            
-            if (settingsVisible) {
-                loadSettings();
-            }
-        }
-        
-        async function loadSettings() {
+        async function handleLogout() {
             try {
-                const response = await fetch(`${API_BASE}/api/settings`);
-                const result = await response.json();
+                const response = await fetch('/api/logout', { method: 'POST' });
+                const data = await response.json();
                 
-                if (result.success && result.data) {
-                    const data = result.data;
-                    
-                    // Set default to user's Downloads folder if empty
-                    const currentDir = data.currentDownloadsDir || 'C:\\Users\\Jackle\\Downloads\\YouTube-Downloader';
-                    document.getElementById('downloadsDirInput').value = currentDir;
-                    
-                    const infoHtml = `
-                        <strong>Current:</strong> ${data.resolvedPath || currentDir}<br>
-                        <strong>Status:</strong> ${data.dirExists ? '✅ Exists' : '⚠️ Will be created'} | 
-                        📁 ${data.fileCount || 0} files |
-                        📊 ${data.downloadedVideosCount || 0} tracked |
-                        🔍 ${data.indexedFilesCount || 0} indexed
-                        ${data.recentFiles && data.recentFiles.length > 0 ? 
-                            '<br><strong>Recent:</strong> ' + data.recentFiles.map(f => f.name).join(', ') 
-                        : ''}
-                    `;
-                    document.getElementById('folderInfo').innerHTML = infoHtml;
-                    
-                    document.getElementById('folderStatus').innerHTML = `
-                        <span>✅ Download folder: <strong>${currentDir}</strong></span><br>
-                        <small style="color: #666;">📊 Tracking ${data.downloadedVideosCount || 0} videos | ${data.indexedFilesCount || 0} files indexed</small>
-                    `;
+                if (data.success) {
+                    window.location.href = '/login';
                 }
-                
             } catch (error) {
-                console.error('[Settings] Error loading:', error);
-                document.getElementById('folderInfo').innerHTML = 'Error loading settings';
+                console.error('Logout error:', error);
+                window.location.href = '/login';
             }
         }
+
+        // ==================== MODIFICATION 2: VIDEO STATS FUNCTIONS ====================
         
-        async function saveDownloadFolder() {
-            const newFolder = document.getElementById('downloadsDirInput').value.trim() || 'C:\\Users\\Jackle\\Downloads\\YouTube-Downloader';
-            
-            const statusEl = document.getElementById('folderStatus');
-            statusEl.innerHTML = '<span>⏳ Saving...</span>';
-            
+        async function refreshStats() {
+            if (!currentChannel || !currentChannel.id) {
+                showAlert('No channel loaded', 'warning');
+                return;
+            }
+
+            const btn = document.getElementById('refreshStatsBtn');
+            if (btn) {
+                btn.disabled = true;
+                btn.innerHTML = '<span class="spinner"></span> Loading...';
+            }
+
             try {
-                const testResponse = await fetch(`${API_BASE}/api/settings/test-folder`, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ folderPath: newFolder })
-                });
-                
-                const testResult = await testResponse.json();
-                
-                if (!testResult.data?.canUse) {
-                    throw new Error(testResult.error || 'Folder is not writable');
-                }
-                
-                const response = await fetch(`${API_BASE}/api/settings`, {
-                    method: 'PUT',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ downloadsDir: newFolder })
-                });
-                
-                const result = await response.json();
-                
-                if (result.success) {
-                    showAlert(`✅ Download folder changed to: ${newFolder}`, 'success');
-                    statusEl.innerHTML = `<span>✅ Saved: ${newFolder}</span>`;
-                    addLogEntry(`📁 Download folder changed to: ${newFolder}`, 'info');
-                    loadSettings();
-                    
-                    // Re-sync after folder change
-                    if (currentChannel) {
-                        manualSync();
-                    }
+                const response = await fetch(`${API_BASE}/api/channels/${currentChannel.id}/stats`);
+                const data = await response.json();
+
+                if (data.success) {
+                    updateStatsBanner(data.stats);
+                    addLogEntry(`📊 Stats updated: ${data.stats.youtubeTotal} total, ${data.stats.downloadedCount} downloaded`, 'info');
                 } else {
-                    throw new Error(result.error || 'Failed to save');
+                    showAlert('Failed to load stats: ' + (data.error || 'Unknown error'), 'error');
                 }
-                
             } catch (error) {
-                console.error('[Settings] Error saving:', error);
-                statusEl.innerHTML = `<span>❌ Error: ${error.message}</span>`;
-                showAlert(`Error: ${error.message}`, 'error');
-            }
-        }
-        
-        function openFolderPicker() {
-            const input = document.createElement('input');
-            input.type = 'file';
-            input.webkitdirectory = true;
-            input.directory = true;
-            
-            input.onchange = (e) => {
-                if (e.target.files.length > 0) {
-                    const firstFile = e.target.files[0];
-                    const fullPath = firstFile.webkitRelativePath;
-                    const folderPath = fullPath.split('/')[0];
-                    
-                    const currentInput = document.getElementById('downloadsDirInput').value;
-                    const basePath = currentInput.substring(0, currentInput.lastIndexOf('\\') + 1 || currentInput.lastIndexOf('/') + 1);
-                    
-                    document.getElementById('downloadsDirInput').value = basePath + folderPath;
-                    showAlert(`Selected folder: ${folderPath}`, 'info');
+                console.error('[Stats] Error:', error);
+                showAlert('Error loading stats: ' + error.message, 'error');
+            } finally {
+                if (btn) {
+                    btn.disabled = false;
+                    btn.innerHTML = '🔄 Refresh Stats';
                 }
-            };
-            
-            input.click();
-        }
-        
-        async function setFolderPreset(preset) {
-            const currentValue = document.getElementById('downloadsDirInput').value;
-            
-            // Default to Jackle's home directory
-            let homeDir = 'C:\\Users\\Jackle\\';
-            const winMatch = currentValue.match(/^(C:\\Users\\[^\\]+\\)/);
-            const linuxMatch = currentValue.match(/^(\/home\/[^\/]+\/)/);
-            
-            // Try harder to detect home directory
-            if (!winMatch && !linuxMatch) {
-                const anyWinPath = currentValue.match(/[A-Za-z]:\\/);
-                if (anyWinPath && currentValue.includes('Users')) {
-                    const userMatch = currentValue.match(/(C:\\Users\\[^\\]+\\)/i);
-                    if (userMatch) {
-                        homeDir = userMatch[1];
-                    }
-                }
-            } else if (winMatch) {
-                homeDir = winMatch[1];
-            } else if (linuxMatch) {
-                homeDir = linuxMatch[1];
-            }
-            
-            let newPath;
-            let presetName = '';
-            
-            switch(preset) {
-                case 'downloads':
-                    newPath = homeDir + 'Downloads\\YouTube-Downloader';
-                    presetName = '📥 Downloads';
-                    break;
-                case 'desktop':
-                    newPath = homeDir + 'Desktop\\YouTube-Downloads';
-                    presetName = '🖥️ Desktop';
-                    break;
-                case 'videos':
-                    newPath = homeDir + 'Videos\\YouTube';
-                    presetName = '🎬 Videos';
-                    break;
-                case 'documents':
-                    newPath = homeDir + 'Documents\\YouTube';
-                    presetName = '📄 Documents';
-                    break;
-                default:
-                    return;
-            }
-            
-            document.getElementById('downloadsDirInput').value = newPath;
-            showAlert(`📁 Setting ${presetName} folder...<br><code>${newPath}</code>`, 'info');
-            
-            try {
-                await saveDownloadFolder();
-                showAlert(`✅ ${presetName} folder set and saved!<br>📂 ${newPath}`, 'success', 4000);
-                addLogEntry(`📁 Preset applied: ${presetName} -> ${newPath}`, 'success');
-            } catch (error) {
-                console.error('[Preset] Auto-save failed:', error);
-                showAlert(`⚠️ Preset applied but save failed:<br>${error.message}<br>Please click "💾 Save" manually.`, 'warning', 6000);
             }
         }
 
-        // Initialize settings after a short delay
-        setTimeout(loadSettings, 500);
+        function updateStatsBanner(stats) {
+            const banner = document.getElementById('statsBanner');
+            if (!banner) return;
+
+            banner.classList.add('show');
+
+            document.getElementById('youtubeTotal').textContent = stats.youtubeTotal || 0;
+            document.getElementById('downloadedCount').textContent = stats.downloadedCount || 0;
+            document.getElementById('missingCount').textContent = stats.missingCount || 0;
+            
+            const progressPercent = stats.progressPercent || 0;
+            document.getElementById('statsProgressFill').style.width = `${Math.min(progressPercent, 100)}%`;
+            document.getElementById('statsProgressText').textContent = `Progress: ${progressPercent}%`;
+        }
 
         // ==================== CHANNEL LOADING ====================
         
         async function loadChannel() {
-            const input = document.getElementById('channelInput').value.trim();
-            if (!input) {
+            const input = document.getElementById('channelInput');
+            const url = input.value.trim();
+            
+            if (!url) {
                 showAlert('Please enter a channel URL or username', 'warning');
                 return;
             }
 
             const btn = document.getElementById('loadBtn');
             btn.disabled = true;
-            btn.innerHTML = '<span class="spinner"></span>Loading...';
+            btn.innerHTML = '<span class="spinner"></span> Loading...';
+
+            showAlert('📡 Fetching channel information...', 'info');
+            addLogEntry(`📡 Loading channel: ${url}`, 'info');
 
             try {
-                let url = input;
-                
-                if (input.toLowerCase().startsWith('http://') || input.toLowerCase().startsWith('https://')) {
-                    url = input;
-                } else if (input.includes('youtube.com') || input.includes('youtu.be')) {
-                    url = 'https://' + input.replace(/^\/\//, '');
-                } else {
-                    const username = input.startsWith('@') ? input : '@' + input;
-                    url = `https://www.youtube.com/${username}`;
-                }
-                
-                addLogEntry(`📺 Loading channel: ${url}`, 'info');
-                console.log('[loadChannel] Input:', input);
-                console.log('[loadChannel] Processed URL:', url);
-                
                 const response = await fetch(`${API_BASE}/api/channels`, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
@@ -1773,168 +1543,39 @@
 
                 const data = await response.json();
 
-                if (!data.success) {
+                if (!response.ok || !data.success) {
                     throw new Error(data.error || 'Failed to load channel');
                 }
 
                 currentChannel = data.channel;
-                videos = data.videos || [];
-                
-                // Extract sync info from response
-                if (data.syncInfo) {
-                    updateSyncBanner(data.syncInfo);
-                }
-                
-                renderVideos();
-                updateStats();
-                
+                videos = currentChannel.videos || [];
+
                 document.getElementById('videosCard').style.display = 'block';
-                
-                // Show sync summary
-                const newCount = videos.filter(v => v.downloadStatus === 'new').length;
-                const dlCount = videos.filter(v => v.downloadStatus === 'downloaded').length;
-                
-                showAlert(
-                    `✅ Loaded ${videos.length} videos<br>` +
-                    `<span style="color: #d32f2f;">🔴 ${newCount} New</span> | ` +
-                    `<span style="color: #388e3c;">✅ ${dlCount} Already Downloaded</span>`,
-                    newCount > 0 ? 'warning' : 'success',
-                    8000
-                );
+                document.getElementById('channelInput').value = currentChannel.url || url;
 
-                addLogEntry(`📊 Channel loaded: ${videos.length} videos (${newCount} new, ${dlCount} downloaded)`, 'success');
+                // Update stats
+                document.getElementById('channelStats').innerHTML = `
+                    <span class="stat-badge stat-total">📊 Total: ${videos.length}</span>
+                `;
 
+                renderVideos();
+                
+                // MODIFICATION 2: Load stats when channel is loaded
+                refreshStats();
+
+                showAlert(`✅ Loaded "${currentChannel.name}" with ${videos.length} videos`, 'success', 4000);
+                addLogEntry(`✅ Channel loaded: ${currentChannel.name} (${videos.length} videos)`, 'success');
+
+                // Start queue polling if there are active downloads
                 startPolling();
-                startLiveProgressSync();  // Start live sync immediately
 
             } catch (error) {
-                console.error('Error loading channel:', error);
-                showAlert(`Error: ${error.message}`, 'error');
-                addLogEntry(`❌ Error loading channel: ${error.message}`, 'error');
+                console.error('[Load Channel] Error:', error);
+                showAlert(`❌ Error: ${error.message}`, 'error', 6000);
+                addLogEntry(`❌ Failed to load channel: ${error.message}`, 'error');
             } finally {
                 btn.disabled = false;
                 btn.innerHTML = 'Load Channel';
-            }
-        }
-
-        // ==================== DOWNLOAD SYNC FUNCTIONS ====================
-        
-        /**
-         * Update the sync banner with current status
-         */
-        function updateSyncBanner(syncInfo) {
-            const banner = document.getElementById('syncBanner');
-            
-            if (syncInfo) {
-                banner.style.display = 'flex';
-                document.getElementById('syncTotal').textContent = syncInfo.totalVideos || 0;
-                document.getElementById('syncNew').textContent = syncInfo.newVideos || 0;
-                document.getElementById('syncDownloaded').textContent = syncInfo.alreadyDownloaded || 0;
-                document.getElementById('syncIndexed').textContent = syncInfo.indexedFiles || 0;
-                document.getElementById('syncMethod').textContent = syncInfo.matchingMethod || '-';
-                
-                lastSyncTime = new Date();
-            }
-        }
-        
-        /**
-         * MAIN SYNC FUNCTION - Check videos against download folder
-         */
-        async function syncWithDownloadFolder() {
-            if (!videos || videos.length === 0) return;
-            
-            console.log('[Sync] Starting sync with download folder...');
-            addLogEntry('🔄 Starting sync with download folder...', 'info');
-            
-            try {
-                // ⭐ NEW: Send channelName for accurate folder-specific matching!
-                const response = await fetch(`${API_BASE}/api/downloaded-files/check`, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({
-                        videos: videos.map(v => ({
-                            id: v.id || v.videoId,
-                            title: v.title
-                        })),
-                        channelName: currentChannel?.name  // ⭐ SEND CHANNEL NAME FOR FOLDER MATCHING
-                    })
-                });
-                
-                const data = await response.json();
-                
-                if (!data.success) {
-                    throw new Error(data.error || 'Sync failed');
-                }
-                
-                console.log('[Sync] Results:', data.summary);
-                
-                // Update each video's status based on server response
-                data.results.forEach((result, index) => {
-                    if (videos[index]) {
-                        videos[index].downloadStatus = result.status;
-                        videos[index].matchedBy = result.matchedBy;
-                        videos[index].similarity = result.similarity;
-                        
-                        if (result.fileInfo) {
-                            videos[index].fileSize = result.fileInfo.sizeMB;
-                            videos[index].filePath = result.fileInfo.filename;
-                            videos[index].downloadedAt = result.fileInfo.modified;
-                            // ⭐ NEW: Store channel folder info
-                            videos[index].channelFolder = result.fileInfo.channelFolder;
-                        }
-                    }
-                });
-                
-                // Update UI
-                updateSyncBanner({
-                    totalVideos: data.summary.total,
-                    newVideos: data.summary.new,
-                    alreadyDownloaded: data.summary.downloaded,
-                    indexedFiles: 0,
-                    matchingMethod: 'fuzzy_title'
-                });
-                
-                renderVideos();
-                updateStats();
-                
-                addLogEntry(`✅ Sync complete: ${data.summary.new} new, ${data.summary.downloaded} downloaded`, 'success');
-                
-                return data.summary;
-                
-            } catch (error) {
-                console.error('[Sync] Error:', error);
-                showAlert(`Sync error: ${error.message}`, 'error');
-                addLogEntry(`❌ Sync error: ${error.message}`, 'error');
-                return null;
-            }
-        }
-        
-        /**
-         * Manual sync triggered by user
-         */
-        async function manualSync() {
-            const btn = event?.target;
-            if (btn) {
-                btn.disabled = true;
-                btn.innerHTML = '<span class="spinner"></span>';
-            }
-            
-            showAlert('🔄 Syncing with download folder...', 'info');
-            
-            const result = await syncWithDownloadFolder();
-            
-            if (btn) {
-                btn.disabled = false;
-                btn.innerHTML = '🔄 Sync';
-            }
-            
-            if (result) {
-                showAlert(
-                    `✅ Sync complete!<br>` +
-                    `🔴 ${result.new} New | ✅ ${result.downloaded} Downloaded`,
-                    'success',
-                    4000
-                );
             }
         }
 
@@ -1949,22 +1590,19 @@
             }
 
             container.innerHTML = videos.map((video, index) => {
-                // Determine CSS status class
-                const statusClass = video.downloadStatus === 'new' ? 'status-new' :
-                                   video.downloadStatus === 'downloaded' ? 'status-downloaded' :
-                                   video.downloadStatus === 'downloading' ? 'downloading' :
+                // Determine status class (simplified - no more badge-based status)
+                const statusClass = video.downloadStatus === 'downloading' ? 'downloading' :
                                    video.downloadStatus === 'completed' ? 'completed' :
-                                   video.downloadStatus === 'skipped' ? 'skipped' : '';
+                                   video.downloadStatus === 'skipped' ? 'skipped' :
+                                   video.downloadStatus === 'error' ? 'error' : '';
                 
                 // Generate file info HTML for downloaded videos
-                const fileInfoHtml = (video.downloadStatus === 'downloaded' || video.downloadStatus === 'completed') && video.fileSize ? `
+                const fileInfoHtml = (video.downloadStatus === 'completed' || video.downloadStatus === 'downloaded') && video.fileSize ? `
                     <div class="file-info">
                         <span class="file-info-icon">💾</span>
                         <div class="file-info-details">
                             <span class="file-info-item">📄 ${escapeHtml(video.filePath || 'File exists')}</span>
                             <span class="file-info-item">📦 ${video.fileSize} MB</span>
-                            ${video.similarity ? `<span class="file-info-item">🎯 ${(video.similarity * 100).toFixed(0)}% match</span>` : ''}
-                            ${video.matchedBy ? `<span class="file-info-item">🔍 Match: ${video.matchedBy}</span>` : ''}
                         </div>
                     </div>
                 ` : '';
@@ -1974,15 +1612,11 @@
                     <input type="checkbox" 
                            class="video-checkbox" 
                            ${selectedVideos.has(index) ? 'checked' : ''}
-                           ${video.downloadStatus === 'downloaded' || video.downloadStatus === 'completed' ? 'disabled title="Already downloaded"' : ''}
                            onchange="toggleVideo(${index})">
                     
                     <div class="video-info">
                         <div class="video-title">${escapeHtml(video.title)}</div>
                         <div class="video-meta">
-                            <span class="status-badge status-${video.downloadStatus}" id="status-${index}">
-                                ${getStatusIcon(video.downloadStatus)} ${getStatusLabel(video, index)}
-                            </span>
                             ${video.duration ? `<span>⏱️ ${formatDuration(video.duration)}</span>` : ''}
                             ${video.views && video.views !== 'NA' ? `<span>👁️ ${formatNumber(video.views)}` : ''}
                         </div>
@@ -1997,24 +1631,20 @@
 
                     <!-- Action Buttons -->
                     <div class="video-actions">
-                        ${video.downloadStatus === 'new' ? `
-                            <button class="btn-primary btn-small" onclick="downloadVideo(${index})">
-                                ⬇️ Download
-                            </button>
-                        ` : (video.downloadStatus === 'downloaded' || video.downloadStatus === 'completed') ? `
-                            <button class="btn-success btn-small" onclick="downloadFile('${video.id || ''}', '${(video.title || 'video').replace(/'/g, "\\'")}', '${video.filePath || video.finalFilename || ''}')">
-                                📥 Get File
-                            </button>
-                            <span style="color: #388e3c; font-size: 0.8em; font-weight: 600;" title="${video.filePath || 'Downloaded'}">✅ Done</span>
-                        ` : video.downloadStatus === 'downloading' ? `
+                        ${video.downloadStatus === 'downloading' ? `
                             <span class="status-badge status-downloading">
                                 <span class="spinner"></span> ${Math.round(video.progress || 0)}%
                             </span>
+                        ` : video.downloadStatus === 'completed' || video.downloadStatus === 'downloaded' ? `
+                            <button class="btn-success btn-small" onclick="downloadFile('${video.id || ''}', '${(video.title || 'video').replace(/'/g, "\\'")}', '${video.filePath || video.finalFilename || ''}')">
+                                📥 Get File
+                            </button>
+                            <span style="color: #388e3c; font-size: 0.8em; font-weight: 600;">✅ Done</span>
                         ` : video.downloadStatus === 'skipped' ? `
                             <button class="btn-success btn-small" onclick="downloadFile('${video.id || ''}', '${(video.title || 'video').replace(/'/g, "\\'")}', '${video.filePath || ''}')">
                                 📥 Get File
                             </button>
-                            <span style="color: #f57c00; font-size: 0.8em;" title="Already exists">⏭️ Exists</span>
+                            <span style="color: #f57c00; font-size: 0.8em;">⏭️ Exists</span>
                         ` : video.downloadStatus === 'error' ? `
                             <button class="btn-danger btn-small" onclick="downloadVideo(${index})">
                                 🔄 Retry
@@ -2053,58 +1683,7 @@
             // Check for active downloads and start live sync
             if (videos.some(v => v.downloadStatus === 'downloading')) {
                 startLiveProgressSync();
-                startPeriodicLogging();
             }
-        }
-        
-        function getStatusLabel(video, index) {
-            switch (video.downloadStatus) {
-                case 'new': return 'NEW';
-                case 'downloaded': return 'DOWNLOADED';
-                case 'downloading': return video.progress > 0 ? `${Math.round(video.progress)}%` : 'DOWNLOADING';
-                case 'completed':
-                    return video.finalFilename ? '✅ SAVED' : 'DONE';
-                case 'skipped': return 'SKIPPED';
-                case 'error': return 'ERROR';
-                default: return video.downloadStatus || 'UNKNOWN';
-            }
-        }
-
-        function getVideoClass(video) {
-            switch (video.downloadStatus) {
-                case 'downloading': return 'downloading';
-                case 'completed':
-                case 'downloaded': return 'completed';
-                case 'skipped': return 'skipped';
-                default: return '';
-            }
-        }
-
-        function getStatusIcon(status) {
-            switch (status) {
-                case 'new': return '🔴';
-                case 'downloaded': return '✅';
-                case 'downloading': return '⬇️';
-                case 'completed': return '✅';
-                case 'skipped': return '⏭️';
-                case 'error': return '❌';
-                default: return '❓';
-            }
-        }
-
-        function updateStats() {
-            const total = videos.length;
-            const downloaded = videos.filter(v => v.downloadStatus === 'downloaded' || v.downloadStatus === 'completed').length;
-            const newCount = videos.filter(v => v.downloadStatus === 'new').length;
-
-            document.getElementById('channelStats').innerHTML = `
-                <span class="stat-badge stat-total">📊 Total: ${total}</span>
-                <span class="stat-badge stat-new">🔴 New: ${newCount}</span>
-                <span class="stat-badge stat-downloaded">✅ Downloaded: ${downloaded}</span>
-                <span class="stat-badge stat-sync" onclick="manualSync()" title="Click to re-sync with download folder">
-                    🔄 Sync
-                </span>
-            `;
         }
 
         function toggleVideo(index) {
@@ -2119,13 +1698,10 @@
         function toggleSelectAll() {
             const selectAll = document.getElementById('selectAll');
             videos.forEach((video, index) => {
-                // Only select NEW videos (not already downloaded)
-                if (video.downloadStatus === 'new') {
-                    if (selectAll.checked) {
-                        selectedVideos.add(index);
-                    } else {
-                        selectedVideos.delete(index);
-                    }
+                if (selectAll.checked) {
+                    selectedVideos.add(index);
+                } else {
+                    selectedVideos.delete(index);
                 }
             });
             renderVideos();
@@ -2136,7 +1712,6 @@
             const count = selectedVideos.size;
             document.getElementById('selectedCount').textContent = `${count} selected`;
             document.getElementById('downloadSelectedBtn').disabled = count === 0;
-            document.getElementById('downloadNewBtn').disabled = count === 0;
         }
 
         // ==================== DOWNLOAD FUNCTIONS ====================
@@ -2146,8 +1721,6 @@
             
             video.downloadStatus = 'downloading';
             video.progress = 0;
-            video.logged = false;
-            video.errorLogged = false;
             
             addLogEntry(`▶️ Starting download: "${video.title.substring(0, 40)}..."`, 'info');
             renderVideos();
@@ -2160,7 +1733,7 @@
                         videoId: video.id || video.videoId,
                         title: video.title,
                         channelId: currentChannel?.id,
-                        channelName: currentChannel?.name,  // ⭐ NEW: Send channel name for folder organization
+                        channelName: currentChannel?.name,
                         format: 'best',
                         quality: 'lowest'
                     })
@@ -2170,7 +1743,6 @@
 
                 if (result.status === 'skipped') {
                     video.downloadStatus = 'skipped';
-                    video.skipReason = result.download?.reason;
                     video.fileSize = result.download?.sizeMB;
                     video.filePath = result.download?.filename;
                     showAlert(`${video.title.substring(0, 50)}... - Already exists!`, 'warning');
@@ -2180,30 +1752,26 @@
                     showAlert(`Started: ${video.title.substring(0, 50)}...`, 'info');
                     addLogEntry(`✅ Download queued: "${video.title.substring(0, 30)}..." [Job: ${result.jobId}]`, 'success');
                     startLiveProgressSync();
-                    startPeriodicLogging();  // Start 5-second logging
                 } else {
                     throw new Error(result.error || 'Download failed');
                 }
 
                 renderVideos();
-                updateStats();
 
             } catch (error) {
                 video.downloadStatus = 'error';
                 video.error = error.message;
-                video.errorLogged = true;
                 renderVideos();
                 showAlert(`Error: ${error.message}`, 'error');
                 addLogEntry(`❌ Download failed: "${video.title.substring(0, 30)}..." - ${error.message}`, 'error');
             }
         }
         
-        // ==================== LIVE PROGRESS SYNC (Backend-Driven) ====================
+        // ==================== LIVE PROGRESS SYNC ====================
         let progressSyncInterval = null;
         
         function startLiveProgressSync() {
             if (progressSyncInterval) {
-                // Already running, just show indicator
                 showLiveIndicator(true);
                 return;
             }
@@ -2212,7 +1780,6 @@
             addLogEntry('🔄 Starting real-time progress sync...', 'info');
             showLiveIndicator(true);
             
-            // Poll every 2 seconds for smooth progress updates
             progressSyncInterval = setInterval(async () => {
                 try {
                     const response = await fetch(`${API_BASE}/api/download-queue`);
@@ -2222,10 +1789,8 @@
                     
                     let hasActiveDownloads = false;
                     let completedThisTick = [];
-                    let progressUpdated = false;
                     
                     videos.forEach((video, index) => {
-                        // Match by video ID or title
                         const activeDownload = data.queue.active.find(d => 
                             d.videoId === video.id || d.title === video.title || d.url?.includes(video.id)
                         );
@@ -2236,29 +1801,23 @@
                         if (activeDownload) {
                             hasActiveDownloads = true;
                             
-                            // Get backend progress percentage
                             const backendProgress = activeDownload.progress || 0;
                             const oldProgress = video.progress || 0;
                             
-                            // Only update if progress actually changed
                             if (Math.abs(oldProgress - backendProgress) >= 0.5) {
                                 video.progress = backendProgress;
                                 video.speed = activeDownload.speed || null;
                                 video.total = activeDownload.total || null;
-                                video.downloadedBytes = activeDownload.downloadedBytes || null;
                                 
                                 updateProgressBar(index, backendProgress, activeDownload.speed, activeDownload.total);
-                                updateStatusBadge(index, video);
                                 progressUpdated = true;
                             }
                             
-                            // Ensure status stays as downloading
                             if (video.downloadStatus !== 'downloading') {
                                 video.downloadStatus = 'downloading';
                             }
                         }
                         
-                        // Handle completed downloads
                         if (completedDownload && video.downloadStatus !== 'completed' && video.downloadStatus !== 'downloaded') {
                             video.downloadStatus = 'completed';
                             video.progress = 100;
@@ -2271,13 +1830,9 @@
                                 title: video.title,
                                 finalFilename: video.finalFilename
                             });
-                            
-                            // Mark as logged for the logger to pick up
-                            video.logged = false;
                         }
                     });
                     
-                    // Handle completions
                     if (completedThisTick.length > 0) {
                         completedThisTick.forEach(({index, title, finalFilename}) => {
                             showCompletionNotification(index, title, finalFilename);
@@ -2285,10 +1840,11 @@
                         });
                         
                         renderVideos();
-                        updateStats();
+                        
+                        // Refresh stats after download completes
+                        refreshStats();
                     }
                     
-                    // Stop syncing if no active downloads
                     if (!hasActiveDownloads && completedThisTick.length === 0) {
                         const stillDownloading = videos.some(v => v.downloadStatus === 'downloading');
                         if (!stillDownloading) {
@@ -2299,7 +1855,7 @@
                 } catch (error) {
                     console.warn('[Progress] Sync error:', error);
                 }
-            }, 2000);  // 2 second interval for smooth updates
+            }, 2000);
         }
         
         function stopLiveProgressSync() {
@@ -2310,7 +1866,6 @@
                 showLiveIndicator(false);
                 addLogEntry('⏹️ Real-time progress sync stopped', 'info');
             }
-            stopPeriodicLogging();
         }
         
         function showLiveIndicator(show) {
@@ -2327,7 +1882,6 @@
             
             if (containerEl) containerEl.style.display = '';
             
-            // Clamp progress between 0 and 100
             const clampedProgress = Math.max(0, Math.min(100, progress || 0));
             
             if (fillEl) {
@@ -2351,13 +1905,6 @@
             
             if (sizeEl) {
                 sizeEl.textContent = size ? `📦 ${size}` : '';
-            }
-        }
-        
-        function updateStatusBadge(index, video) {
-            const statusEl = document.getElementById(`status-${index}`);
-            if (statusEl) {
-                statusEl.innerHTML = `${getStatusIcon(video.downloadStatus)} ${getStatusLabel(video, index)}`;
             }
         }
         
@@ -2385,8 +1932,8 @@
                 
                 oscillator.frequency.value = 800;
                 oscillator.type = 'sine';
-                gainNode.gain.setValueAtTime(0.3, audioContext.currentTime);
-                gainNode.gain.exponentialRampToValueAtTime(0.01, audioContext.currentTime + 0.3);
+                gainNode.setValueAtTime(0.3, audioContext.currentTime);
+                gainNode.exponentialRampToValueAtTime(0.01, audioContext.currentTime + 0.3);
                 
                 oscillator.start(audioContext.currentTime);
                 oscillator.stop(audioContext.currentTime + 0.3);
@@ -2438,39 +1985,33 @@
 
             const selectedIndices = Array.from(selectedVideos);
             let successCount = 0;
-            let skipCount = 0;
 
             addLogEntry(`📦 Starting batch download: ${selectedIndices.length} videos`, 'info');
 
             for (const index of selectedIndices) {
                 const video = videos[index];
                 
-                if (video.downloadStatus === 'downloaded' || video.downloadStatus === 'completed') {
-                    skipCount++;
+                if (video.downloadStatus === 'completed' || video.downloadStatus === 'downloaded') {
                     continue;
                 }
 
                 await downloadVideo(index);
                 successCount++;
-                await new Promise(resolve => setTimeout(resolve, 300));  // Small delay between downloads
+                await new Promise(resolve => setTimeout(resolve, 300));
             }
 
-            if (skipCount > 0) {
-                showAlert(`Started ${successCount}, skipped ${skipCount} already downloaded`, 'info');
-                addLogEntry(`📊 Batch complete: ${successCount} started, ${skipCount} skipped`, 'warning');
-            } else {
-                showAlert(`Started ${successCount} downloads`, 'success');
-                addLogEntry(`📊 Batch complete: ${successCount} downloads started`, 'success');
-            }
+            showAlert(`Started ${successCount} downloads`, 'success');
+            addLogEntry(`📊 Batch complete: ${successCount} downloads started`, 'success');
 
             selectedVideos.clear();
             updateSelectedCount();
         }
 
-        async function downloadNewOnly() {
+        async function downloadAll() {
             selectedVideos.clear();
             videos.forEach((video, index) => {
-                if (video.downloadStatus === 'new') {
+                if (video.downloadStatus !== 'completed' && video.downloadStatus !== 'downloaded' && 
+                    video.downloadStatus !== 'skipped' && video.downloadStatus !== 'downloading') {
                     selectedVideos.add(index);
                 }
             });
@@ -2481,8 +2022,7 @@
             if (selectedVideos.size > 0) {
                 await downloadSelected();
             } else {
-                showAlert('✅ No new videos to download - all synced!', 'success', 5000);
-                addLogEntry('✅ All videos already downloaded!', 'info');
+                showAlert('All videos already downloaded!', 'info', 5000);
             }
         }
 
@@ -2493,8 +2033,7 @@
 
             pollingInterval = setInterval(async () => {
                 await refreshQueue();
-                updateVideoProgress();
-            }, 3000);  // Slightly longer interval since we have live sync
+            }, 3000);
         }
 
         async function refreshQueue() {
@@ -2540,21 +2079,79 @@
             `).join('');
         }
 
-        function updateVideoProgress() {
-            videos.forEach((video, index) => {
-                if (video.downloadStatus === 'downloading') {
-                    const progressEl = document.querySelector(`#progress-fill-${index}`);
-                    
-                    if (progressEl && video.progress !== undefined) {
-                        progressEl.style.width = `${Math.min(video.progress, 100)}%`;
-                    }
-                }
-            });
+        function clearCompleted() {
+            fetch(`${API_BASE}/api/download-queue`, { method: 'DELETE' })
+                .then(() => {
+                    showAlert('Queue cleared', 'info');
+                    addLogEntry('🗑️ Queue cleared by user', 'info');
+                    refreshQueue();
+                })
+                .catch(err => console.error('Error clearing queue:', err));
         }
 
-        function clearCompleted() {
-            showAlert('Queue cleared', 'info');
-            addLogEntry('🗑️ Queue cleared by user', 'info');
+        // ==================== SETTINGS FUNCTIONS ====================
+        
+        async function loadSettings() {
+            try {
+                const response = await fetch(`${API_BASE}/api/settings`);
+                const data = await response.json();
+                
+                if (data.success) {
+                    document.getElementById('downloadsDirInput').value = data.data.currentDownloadsDir || '';
+                    document.getElementById('folderInfo').innerHTML = `
+                        Path: ${data.data.resolvedPath || 'N/A'}<br>
+                        Exists: ${data.data.dirExists ? 'Yes' : 'No'}<br>
+                        Files: ${data.data.fileCount || 0}
+                    `;
+                    document.getElementById('folderStatus').innerHTML = `
+                        Current: <strong>${data.data.resolvedPath || 'Not set'}</strong>
+                    `;
+                }
+            } catch (error) {
+                console.error('Error loading settings:', error);
+            }
+        }
+
+        async function saveDownloadFolder() {
+            const newPath = document.getElementById('downloadsDirInput').value.trim();
+            
+            if (!newPath) {
+                showAlert('Please enter a folder path', 'warning');
+                return;
+            }
+
+            try {
+                const response = await fetch(`${API_BASE}/api/settings`, {
+                    method: 'PUT',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ downloadsDir: newPath })
+                });
+
+                const data = await response.json();
+
+                if (data.success) {
+                    showAlert(`✅ ${data.message}`, 'success');
+                    addLogEntry(`📁 Download folder updated: ${newPath}`, 'info');
+                    loadSettings();
+                } else {
+                    showAlert(`Error: ${data.error}`, 'error');
+                }
+            } catch (error) {
+                showAlert(`Error: ${error.message}`, 'error');
+            }
+        }
+
+        function toggleSettings() {
+            const content = document.getElementById('settingsContent');
+            const icon = document.getElementById('settingsToggleIcon');
+            
+            if (content.style.display === 'none') {
+                content.style.display = 'block';
+                icon.textContent = '▼';
+            } else {
+                content.style.display = 'none';
+                icon.textContent = '▲';
+            }
         }
 
         // Utility functions
@@ -2582,28 +2179,8 @@
         // Initialize on page load
         document.addEventListener('DOMContentLoaded', () => {
             loadSettings();
-            fetchChannels();
             addLogEntry('🌐 Application initialized', 'info');
         });
-
-        async function fetchChannels() {
-            try {
-                const response = await fetch(`${API_BASE}/api/channels`);
-                const data = await response.json();
-
-                if (data.channels && data.channels.length > 0) {
-                    currentChannel = data.channels[0];
-                    videos = currentChannel.videos || [];
-                    renderVideos();
-                    updateStats();
-                    document.getElementById('videosCard').style.display = 'block';
-                    document.getElementById('channelInput').value = currentChannel.url || currentChannel.youtubeId;
-                    addLogEntry(`📺 Restored channel: ${currentChannel.name || currentChannel.url}`, 'info');
-                }
-            } catch (error) {
-                console.log('No saved channels found');
-            }
-        }
 
         // Handle Enter key
         document.getElementById('channelInput').addEventListener('keypress', (e) => {
@@ -2615,8 +2192,8 @@
         // Cleanup on page unload
         window.addEventListener('beforeunload', () => {
             stopLiveProgressSync();
-            stopPeriodicLogging();
             if (pollingInterval) clearInterval(pollingInterval);
+            stopServerLogPolling();
         });
     </script>
 </body>
