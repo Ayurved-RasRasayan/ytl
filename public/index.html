@@ -1545,9 +1545,8 @@
                             
                             <!-- Refresh Interval Selector (Dropdown) -->
                             <select id="syncRefreshInterval" onchange="changeSyncRefreshInterval(this.value)" 
-                                    title="Change auto-refresh interval"
+                                    title="Change auto-refresh interval (min: 2 min)"
                                     style="margin-left: 8px; padding: 3px 6px; border: 1px solid #ddd; border-radius: 5px; font-size: 11px; background: white; cursor: pointer;">
-                                <option value="60">1 min</option>
                                 <option value="120">2 min</option>
                                 <option value="300">5 min</option>
                                 <option value="600" selected>10 min</option>
@@ -1963,6 +1962,8 @@
         let syncData = null;
         let syncTimerInterval = null;
         let syncRefreshSeconds = 10 * 60; // Default: 10 minutes (can be changed by user)
+        let syncInProgress = false; // ⭐ FIX: Prevent duplicate sync calls
+        let lastSyncTime = 0; // Track last sync time
         
         // Current filter state: 'all', 'downloaded', or 'remaining'
         let currentSyncFilter = 'all';
@@ -2303,6 +2304,27 @@
             const btnText = document.getElementById('syncBtnText');
             
             try {
+                // ⭐ FIX: Check if sync already in progress (prevent double-click/rapid-fire)
+                if (syncInProgress) {
+                    console.log('[Sync] ⚠️ Sync already in progress, ignoring duplicate request');
+                    showAlert('⏳ Sync already in progress...', 'warning', 2000);
+                    return;
+                }
+                
+                // ⭐ FIX: Enforce minimum 30 seconds between syncs
+                const timeSinceLastSync = Date.now() - lastSyncTime;
+                const MIN_SYNC_INTERVAL = 30000; // 30 seconds minimum
+                if (timeSinceLastSync < MIN_SYNC_INTERVAL) {
+                    const waitTime = Math.ceil((MIN_SYNC_INTERVAL - timeSinceLastSync) / 1000);
+                    console.log(`[Sync] ⚠️ Too soon! Please wait ${waitTime} seconds`);
+                    showAlert(`⏳ Please wait ${waitTime} seconds before syncing again`, 'warning', 2000);
+                    return;
+                }
+                
+                // Mark sync as in progress
+                syncInProgress = true;
+                lastSyncTime = Date.now();
+                
                 // Show loading state
                 btn.disabled = true;
                 btnIcon.innerHTML = '<span class="sync-spinner"></span>';
@@ -2347,6 +2369,10 @@
                 btn.disabled = false;
                 btnIcon.textContent = '🔄';
                 btnText.textContent = 'Sync Status';
+                
+                // ⭐ FIX: Release sync lock
+                syncInProgress = false;
+                console.log('[Sync] 🔓 Sync lock released (frontend)');
             }
         }
         
@@ -2398,12 +2424,15 @@
         
         // Change sync refresh interval from dropdown
         function changeSyncRefreshInterval(value) {
+            const MIN_INTERVAL = 120; // ⭐ FIX: Minimum 2 minutes (120 seconds)
+            
             if (value === '-1') {
                 // Custom interval - show prompt
                 const customMinutes = prompt(
                     'Enter custom refresh interval in minutes:\n' +
-                    '(e.g., 3 for 3 minutes, 0.5 for 30 seconds)\n\n' +
-                    'Minimum: 1 minute\nMaximum: 1440 minutes (24 hours)',
+                    '(e.g., 3 for 3 minutes, 5 for 5 minutes)\n\n' +
+                    '⭐ Minimum: 2 minutes (recommended: 5-10 min)\n' +
+                    'Maximum: 1440 minutes (24 hours)',
                     '5'
                 );
                 
@@ -2415,8 +2444,9 @@
                 
                 const minutes = parseFloat(customMinutes);
                 
-                if (isNaN(minutes) || minutes < 1 || minutes > 1440) {
-                    showAlert('⚠️ Please enter a value between 1 and 1440 minutes', 'warning', 3000);
+                // ⭐ FIX: Enforce minimum 2 minutes
+                if (isNaN(minutes) || minutes < 2 || minutes > 1440) {
+                    showAlert('⚠️ Please enter a value between 2 and 1440 minutes', 'warning', 3000);
                     document.getElementById('syncRefreshInterval').value = syncRefreshSeconds;
                     return;
                 }

@@ -1293,6 +1293,21 @@ app.post('/api/download', async (req, res) => {
             });
         }
 
+        // ⭐ FIX: Check for duplicate downloads (same URL already in queue/active)
+        const existingDownload = downloadManager.getAll().find(d => 
+            d.url === videoUrl && (d.status === 'queued' || d.status === 'downloading')
+        );
+        if (existingDownload) {
+            console.log(`[Download] ⚠️ DUPLICATE DETECTED: URL already downloading (ID: ${existingDownload.id})`);
+            return res.status(409).json({
+                success: false,
+                error: 'Duplicate download',
+                message: 'This video is already in the download queue or currently downloading',
+                existingJobId: existingDownload.id,
+                status: existingDownload.status
+            });
+        }
+
         console.log('[Download] Processing download:');
         console.log('   - URL:', videoUrl);
         console.log('   - Video ID:', videoId || 'extracted from URL');
@@ -1531,14 +1546,41 @@ app.post('/api/channels', async (req, res) => {
 // SYNC STATUS ENDPOINT - Check which videos are downloaded
 // =============================================================================
 
+// ⭐ FIX: Sync debounce to prevent multiple simultaneous sync calls
+let syncInProgress = new Set();  // Track channels currently being synced
+const SYNC_LOCK_TIMEOUT = 30000; // 30 second max lock duration (safety)
+
 // GET /api/channels/:id/sync-status - Check download status of all videos in a channel
 app.get('/api/channels/:id/sync-status', (req, res) => {
     const { id } = req.params;
     console.log('\n[Sync] GET /api/channels/' + id + '/sync-status');
     
     try {
+        // ⭐ FIX: Check if sync is already in progress for this channel
+        if (syncInProgress.has(id)) {
+            console.log(`[Sync] ⚠️ SYNC IN PROGRESS: Channel ${id} is already being synced, skipping duplicate request`);
+            return res.status(429).json({
+                success: false,
+                error: 'Sync in progress',
+                message: 'A sync operation is already running for this channel. Please wait for it to complete.'
+            });
+        }
+        
+        // Lock this channel for syncing
+        syncInProgress.add(id);
+        console.log(`[Sync] 🔒 Sync lock acquired for channel ${id}`);
+        
+        // Auto-release lock after timeout (safety measure)
+        setTimeout(() => {
+            if (syncInProgress.has(id)) {
+                console.log(`[Sync] 🔓 Auto-releasing sync lock for channel ${id} (timeout)`);
+                syncInProgress.delete(id);
+            }
+        }, SYNC_LOCK_TIMEOUT);
+        
         // Find the channel
         if (!savedChannels.has(id)) {
+            syncInProgress.delete(id);  // Release lock on error
             return res.status(404).json({
                 success: false,
                 error: 'Channel not found'
@@ -1693,10 +1735,17 @@ app.get('/api/channels/:id/sync-status', (req, res) => {
         }
         console.log('   ════════════════════════════════════════════════════════\n');
         
+        // ⭐ FIX: Release sync lock before sending response
+        syncInProgress.delete(id);
+        console.log(`[Sync] 🔓 Sync lock released for channel ${id}`);
+        
         res.json(response);
         
     } catch (error) {
         console.error('[Sync] ❌ Error:', error.message);
+        // ⭐ FIX: Release sync lock on error too
+        syncInProgress.delete(id);
+        console.log(`[Sync] 🔓 Sync lock released for channel ${id} (error)`);
         res.status(500).json({
             success: false,
             error: 'Failed to check sync status: ' + error.message
@@ -1837,6 +1886,13 @@ const downloadQueue = {
     executeJob(job) {
         const { downloadId, videoUrl, outputPath, videoTitle } = job;
         
+        // ⭐ BULLETPROOF: Check if job already executing (prevent 30x execution bug!)
+        const alreadyActive = this.activeJobs.find(j => j.downloadId === downloadId);
+        if (alreadyActive) {
+            console.log(`[Download Queue] ⚠️ DUPLICATE EXECUTION BLOCKED: ${videoTitle?.substring(0, 30)}... (already active)`);
+            return; // Don't execute twice!
+        }
+        
         // ⭐ KEY FIX: Add to activeJobs tracking
         job.startedAt = Date.now();
         this.activeJobs.push(job);
@@ -1873,6 +1929,10 @@ const downloadQueue = {
             if (idx !== -1) {
                 this.activeJobs.splice(idx, 1);
                 console.log(`[Download Queue] 🔓 Removed from active: ${completedJob.videoTitle?.substring(0, 30)}...`);
+            } else {
+                // ⭐ BULLETPROOF: Job not found in active - might have been removed already
+                console.log(`[Download Queue] ⚠️ Job already removed from active (preventing double-complete): ${completedJob.videoTitle?.substring(0, 30)}...`);
+                return; // Don't process completion twice!
             }
         }
         
@@ -1881,6 +1941,19 @@ const downloadQueue = {
         if (this.queue.length > 0 && this.activeJobs.length < this.maxConcurrent) {
             // Get next job from queue
             const nextJob = this.queue.shift();
+            
+            // ⭐ BULLETPROOF: Validate nextJob exists and hasn't been executed
+            if (!nextJob) {
+                console.log('[Download Queue] ⚠️ Next job is null, skipping');
+                return;
+            }
+            
+            // Check if next job is already active (prevent re-execution)
+            const alreadyRunning = this.activeJobs.find(j => j.downloadId === nextJob.downloadId);
+            if (alreadyRunning) {
+                console.log(`[Download Queue] ⚠️ Next job already running, skipping: ${nextJob.videoTitle?.substring(0, 30)}...`);
+                return;
+            }
             
             console.log(`[Download Queue] ▶️ Starting next in queue: ${nextJob.videoTitle?.substring(0, 30)}...`);
             console.log(`[Download Queue] Remaining in queue: ${this.queue.length}`);
