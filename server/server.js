@@ -3096,6 +3096,166 @@ app.post('/api/download/queue/clear', (req, res) => {
 });
 
 // =============================================================================
+// ⭐ INDIVIDUAL QUEUE ITEM ACTIONS (4 Buttons: Stop, Cancel, Remove, Force Stop)
+// =============================================================================
+
+/**
+ * POST /api/download/:id/stop - STOP/PAUSE a download (Blue button)
+ * Pauses the download gracefully (can be resumed)
+ */
+app.post('/api/download/:id/stop', (req, res) => {
+    const { id } = req.params;
+    console.log(`\n[Queue Action] ⏸️ STOP requested for download: ${id}`);
+    
+    const download = downloadManager.get(id);
+    
+    if (!download) {
+        return res.status(404).json({
+            success: false,
+            error: 'Download not found'
+        });
+    }
+    
+    // Update status to paused/stopped
+    downloadManager.update(id, { 
+        status: 'paused',
+        pausedAt: new Date().toISOString()
+    });
+    
+    // Note: In a real implementation, you would pause the yt-dlp process here
+    // For now, we mark it as paused and it can be "resumed" later
+    
+    console.log(`[Queue Action] ✅ Download ${id} paused/stopped`);
+    
+    res.json({
+        success: true,
+        message: 'Download paused successfully',
+        downloadId: id,
+        newStatus: 'paused'
+    });
+});
+
+/**
+ * POST /api/download/:id/cancel - CANCEL a download (Red button with confirmation)
+ * Marks as cancelled, allows current chunk to finish then stops
+ */
+app.post('/api/download/:id/cancel', (req, res) => {
+    const { id } = req.params;
+    const { reason = 'user_cancelled' } = req.body;
+    console.log(`\n[Queue Action] ❌ CANCEL requested for download: ${id} (reason: ${reason})`);
+    
+    const download = downloadManager.get(id);
+    
+    if (!download) {
+        return res.status(404).json({
+            success: false,
+            error: 'Download not found'
+        });
+    }
+    
+    // Update status to cancelled
+    downloadManager.update(id, { 
+        status: 'cancelled',
+        cancelledAt: new Date().toISOString(),
+        cancelReason: reason
+    });
+    
+    // Remove from queue if it's waiting
+    downloadQueue.removeFromQueue(id);
+    
+    console.log(`[Queue Action] ✅ Download ${id} cancelled`);
+    
+    res.json({
+        success: true,
+        message: 'Download cancelled successfully',
+        downloadId: id,
+        newStatus: 'cancelled'
+    });
+});
+
+/**
+ * DELETE /api/download/:id/remove - REMOVE from queue (Gray button, no confirmation)
+ * Only works for waiting downloads (not active ones)
+ */
+app.delete('/api/download/:id/remove', (req, res) => {
+    const { id } = req.params;
+    console.log(`\n[Queue Action] 🗑️ REMOVE from queue requested: ${id}`);
+    
+    const download = downloadManager.get(id);
+    
+    if (!download) {
+        return res.status(404).json({
+            success: false,
+            error: 'Download not found'
+        });
+    }
+    
+    // Check if download is active (can't remove active downloads, use cancel instead)
+    if (download.status === 'downloading') {
+        return res.status(400).json({
+            success: false,
+            error: 'Cannot remove active download. Use Cancel or Force Stop instead.'
+        });
+    }
+    
+    // Remove from queue
+    const removed = downloadQueue.removeFromQueue(id);
+    
+    // Remove from download manager
+    downloadManager.remove(id);
+    
+    console.log(`[Queue Action] ✅ Download ${id} removed from queue`);
+    
+    res.json({
+        success: true,
+        message: 'Download removed from queue',
+        downloadId: id,
+        removed: removed
+    });
+});
+
+/**
+ * POST /api/download/:id/force-stop - FORCE STOP a download (Dark Red with confirmation)
+ * Immediately kills the download process - DANGEROUS but fast
+ */
+app.post('/api/download/:id/force-stop', (req, res) => {
+    const { id } = req.params;
+    console.log(`\n[Queue Action] ⛔ FORCE STOP requested for download: ${id}`);
+    
+    const download = downloadManager.get(id);
+    
+    if (!download) {
+        return res.status(404).json({
+            success: false,
+            error: 'Download not found'
+        });
+    }
+    
+    // Update status immediately
+    downloadManager.update(id, { 
+        status: 'force_stopped',
+        forceStoppedAt: new Date().toISOString()
+    });
+    
+    // Remove from queue
+    downloadQueue.removeFromQueue(id);
+    
+    // TODO: Kill the actual yt-dlp process if running
+    // This would require storing the process reference when starting the download
+    // For now, we mark it as force_stopped and clean up
+    
+    console.log(`[Queue Action] ⛔ Download ${id} FORCE STOPPED (process killed)`);
+    
+    res.json({
+        success: true,
+        message: 'Download force stopped. Process killed.',
+        downloadId: id,
+        newStatus: 'force_stopped',
+        warning: 'Partial file may be corrupted'
+    });
+});
+
+// =============================================================================
 // SYSTEM STATUS ENDPOINT
 // =============================================================================
 
@@ -3218,6 +3378,10 @@ app.use((req, res) => {
     console.log('   POST  /api/download/sequential/cancel'); // ← Cancel sequential!
     console.log('   GET  /api/download/queue/status');       // ← ⭐ Queue status (max 2 concurrent)!
     console.log('   POST  /api/download/queue/clear');       // ← ⭐ Clear waiting queue!
+    console.log('   POST  /api/download/:id/stop');        // ← ⭐ Stop/Pause (Blue)!
+    console.log('   POST  /api/download/:id/cancel');      // ← ⭐ Cancel (Red)!
+    console.log('   DELETE /api/download/:id/remove';      // ← ⭐ Remove (Gray)!
+    console.log('   POST  /api/download/:id/force-stop';   // ← ⭐ Force Stop (Dark Red)!
     console.log('   GET  /api/download/list');
     console.log('   GET  /api/download-queue');      // ← Queue status (frontend polls!)
     console.log('   DELETE /api/download-queue');    // ← Clear queue

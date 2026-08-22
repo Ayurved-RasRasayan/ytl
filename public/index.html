@@ -209,26 +209,26 @@
             transform: none !important;
         }
 
-        /* Video List - COMPACT */
+        /* Video List - COMPACT SINGLE LINE */
         .video-list {
-            max-height: 500px;
+            max-height: 600px;
             overflow-y: auto;
         }
 
-        /* Video items */
+        /* Video items - HORIZONTAL COMPACT LAYOUT */
         .video-item {
-            display: grid;
-            grid-template-columns: 24px 1fr auto;
-            gap: 10px;
+            display: flex;
             align-items: center;
-            padding: 10px 12px;
-            border: 2px solid #eee;
-            border-radius: 8px;
-            margin-bottom: 8px;
+            gap: 10px;
+            padding: 8px 12px;
+            border: 1px solid #e0e0e0;
+            border-radius: 6px;
+            margin-bottom: 4px;
             background: #fafafa;
-            transition: all 0.3s;
+            transition: all 0.2s ease;
             position: relative;
             overflow: hidden;
+            height: 44px; /* Fixed height for single line */
         }
 
         .video-item::before {
@@ -239,13 +239,13 @@
             bottom: 0;
             width: 3px;
             background: #ddd;
-            transition: background 0.3s;
+            transition: background 0.2s;
         }
 
         .video-item:hover {
-            background: #f5f5f5;
+            background: #f0f0f0;
             border-color: #667eea;
-            transform: translateX(2px);
+            box-shadow: 0 2px 8px rgba(0,0,0,0.08);
         }
 
         .video-item.downloading {
@@ -258,12 +258,12 @@
             animation: pulse-blue 1s infinite;
         }
 
-        .video-item.completed {
+        .video-item.completed, .video-item.sync-downloaded {
             background: #e8f5e9;
             border-color: #4caf50;
         }
         
-        .video-item.completed::before {
+        .video-item.completed::before, .video-item.sync-downloaded::before {
             background: #4caf50;
         }
 
@@ -276,6 +276,15 @@
             background: #ffebee;
             border-color: #f44336;
         }
+        
+        .video-item.sync-new {
+            background: #fff5f5;
+            border-color: #ffcdd2;
+        }
+        
+        .video-item.sync-new::before {
+            background: #c62828;
+        }
 
         @keyframes pulse-blue {
             0%, 100% { box-shadow: 0 0 0 0 rgba(33, 150, 243, 0.4); }
@@ -283,49 +292,53 @@
         }
 
         .video-checkbox {
-            width: 18px;
-            height: 18px;
+            width: 16px;
+            height: 16px;
             margin: 0;
             cursor: pointer;
             flex-shrink: 0;
-            align-self: start;
-            margin-top: 2px;
         }
 
+        /* Video info - takes available space */
         .video-info {
             min-width: 0;
+            flex: 1;
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            overflow: hidden;
         }
 
         .video-title {
             font-weight: 500;
             color: #333;
-            margin-bottom: 3px;
             overflow: hidden;
             text-overflow: ellipsis;
             white-space: nowrap;
             font-size: 13px;
+            flex: 1; /* Take remaining space */
         }
 
+        /* Meta info inline */
         .video-meta {
-            font-size: 0.8em;
-            color: #666;
             display: flex;
-            gap: 8px;
             align-items: center;
-            flex-wrap: wrap;
+            gap: 8px;
+            font-size: 11px;
+            color: #666;
+            flex-shrink: 0;
         }
 
-        /* Status Badge */
+        /* Status Badge - Compact */
         .status-badge {
             padding: 2px 8px;
-            border-radius: 12px;
-            font-size: 0.7em;
+            border-radius: 10px;
+            font-size: 10px;
             font-weight: 700;
-            text-transform: uppercase;
-            letter-spacing: 0.5px;
             display: inline-flex;
             align-items: center;
             gap: 3px;
+            flex-shrink: 0;
         }
 
         .status-downloading { 
@@ -619,27 +632,28 @@
             animation: pulse 2s infinite;
         }
 
-        /* Sync progress bar for each video */
+        /* Sync progress bar - COMPACT INLINE */
         .sync-progress-container {
-            grid-column: 1 / -1;
-            margin-top: 6px;
-            padding: 6px 10px;
-            background: #fafafa;
-            border-radius: 6px;
-            border: 1px solid #eee;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            flex-shrink: 0;
         }
 
         .sync-progress-header {
             display: flex;
-            justify-content: space-between;
             align-items: center;
-            margin-bottom: 5px;
+            gap: 6px;
             font-size: 11px;
         }
 
         .sync-progress-label {
             color: #666;
             font-weight: 500;
+            max-width: 150px;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
         }
 
         .sync-progress-status {
@@ -647,6 +661,7 @@
             padding: 2px 8px;
             border-radius: 10px;
             font-size: 10px;
+            white-space: nowrap;
         }
 
         .sync-status-downloaded {
@@ -659,23 +674,9 @@
             color: white;
         }
 
+        /* Hide progress bar in compact mode - use badge instead */
         .sync-progress-bar {
-            height: 8px;
-            background: #ffebee;
-            border-radius: 4px;
-            overflow: hidden;
-        }
-
-        .sync-progress-fill {
-            height: 100%;
-            background: linear-gradient(90deg, #388e3c 0%, #4caf50 50%, #66bb6a 100%);
-            border-radius: 4px;
-            transition: width 0.5s ease-out;
-            position: relative;
-        }
-
-        .sync-progress-fill.downloaded {
-            width: 100% !important;
+            display: none;
         }
 
         .sync-progress-fill.new {
@@ -726,11 +727,12 @@
             display: flex;
             gap: 5px;
             flex-shrink: 0;
+            align-items: center;
         }
 
         .btn-small {
-            padding: 6px 12px;
-            font-size: 0.8em;
+            padding: 4px 10px;
+            font-size: 11px;
         }
 
         /* Batch Actions */
@@ -865,6 +867,166 @@
             border-radius: 10px;
             font-size: 0.75em;
             font-weight: 600;
+        }
+
+        /* Queue Action Buttons - 4 Separate Buttons */
+        .queue-actions {
+            display: flex;
+            align-items: center;
+            gap: 4px;
+            margin-left: 8px;
+        }
+
+        .queue-btn {
+            width: 26px;
+            height: 26px;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 13px;
+            transition: all 0.2s ease;
+            padding: 0;
+            line-height: 1;
+        }
+
+        .queue-btn:hover {
+            transform: scale(1.15);
+            box-shadow: 0 2px 8px rgba(0,0,0,0.2);
+        }
+
+        .queue-btn:active {
+            transform: scale(0.95);
+        }
+
+        /* STOP Button - Blue (Pause) */
+        .queue-btn-stop {
+            background: linear-gradient(135deg, #1976d2 0%, #2196f3 100%);
+            color: white;
+        }
+        .queue-btn-stop:hover {
+            background: linear-gradient(135deg, #1565c0 0%, #1976d2 100%);
+        }
+
+        /* CANCEL Button - Red (with confirmation) */
+        .queue-btn-cancel {
+            background: linear-gradient(135deg, #d32f2f 0%, #f44336 100%);
+            color: white;
+        }
+        .queue-btn-cancel:hover {
+            background: linear-gradient(135deg, #c62828 0%, #d32f2f 100%);
+        }
+
+        /* REMOVE Button - Gray (remove from queue) */
+        .queue-btn-remove {
+            background: linear-gradient(135deg, #616161 0%, #757575 100%);
+            color: white;
+        }
+        .queue-btn-remove:hover {
+            background: linear-gradient(135deg, #424242 0%, #616161 100%);
+        }
+
+        /* FORCE STOP Button - Dark Red (kill process) */
+        .queue-btn-force {
+            background: linear-gradient(135deg, #b71c1c 0%, #c62828 100%);
+            color: white;
+            font-weight: bold;
+        }
+        .queue-btn-force:hover {
+            background: linear-gradient(135deg, #8b0000 0%, #b71c1c 100%);
+            animation: pulse-force 0.5s ease infinite;
+        }
+
+        @keyframes pulse-force {
+            0%, 100% { box-shadow: 0 0 0 0 rgba(183, 28, 28, 0.4); }
+            50% { box-shadow: 0 0 0 6px rgba(183, 28, 28, 0); }
+        }
+
+        /* Confirmation Modal */
+        .confirm-modal-overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: rgba(0, 0, 0, 0.6);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            z-index: 10000;
+            animation: fadeIn 0.2s ease;
+        }
+
+        @keyframes fadeIn {
+            from { opacity: 0; }
+            to { opacity: 1; }
+        }
+
+        .confirm-modal {
+            background: white;
+            border-radius: 12px;
+            padding: 24px;
+            max-width: 400px;
+            width: 90%;
+            box-shadow: 0 10px 40px rgba(0,0,0,0.3);
+            animation: slideUp 0.3s ease;
+        }
+
+        @keyframes slideUp {
+            from { transform: translateY(20px); opacity: 0; }
+            to { transform: translateY(0); opacity: 1; }
+        }
+
+        .confirm-modal-title {
+            font-size: 18px;
+            font-weight: 700;
+            margin-bottom: 12px;
+            color: #333;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .confirm-modal-message {
+            font-size: 14px;
+            color: #666;
+            margin-bottom: 20px;
+            line-height: 1.5;
+        }
+
+        .confirm-modal-actions {
+            display: flex;
+            gap: 10px;
+            justify-content: flex-end;
+        }
+
+        .confirm-modal-btn {
+            padding: 10px 20px;
+            border: none;
+            border-radius: 8px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.2s;
+            font-size: 13px;
+        }
+
+        .confirm-modal-btn-confirm {
+            background: linear-gradient(135deg, #d32f2f 0%, #f44336 100%);
+            color: white;
+        }
+        .confirm-modal-btn-confirm:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 4px 12px rgba(211, 47, 47, 0.4);
+        }
+
+        .confirm-modal-btn-cancel-action {
+            background: #e0e0e0;
+            color: #333;
+        }
+        .confirm-modal-btn-cancel-action:hover {
+            background: #d0d0d0;
         }
 
         /* Settings Panel */
@@ -1506,6 +1668,7 @@
         let currentChannel = null;
         let videos = [];
         let selectedVideos = new Set();
+        let currentFilteredVideos = []; // Store currently displayed (filtered) videos for Select All scope
         let pollingInterval = null;
 
         // API Base URL
@@ -1841,20 +2004,27 @@
                 
                 console.log('🔍 [FILTER-DEBUG] videoSyncStatus keys (first 5):', Object.keys(videoSyncStatus).slice(0, 5));
                 
-                // Attach sync status to each video
+                // Attach sync status to each video (with DEDUPLICATION)
                 let matchCount = 0;
                 let downloadedCount = 0;
+                
+                // Track which syncInfos have been consumed to prevent duplicates
+                // This mirrors the server-side consumedFiles logic
+                const consumedSyncEntries = new Set();
                 
                 sortedVideos.forEach((video, idx) => {
                     // FIX: Match by displayTitle directly (most reliable)
                     const syncInfo = syncData.videos.find(sv => 
-                        sv.displayTitle === video.displayTitle || sv.id === video.id
+                        (sv.displayTitle === video.displayTitle || sv.id === video.id) &&
+                        !consumedSyncEntries.has(sv.displayTitle || sv.id)  // NOT YET CONSUMED
                     );
-                    
-                    if (syncInfo) matchCount++;
                     
                     // Use the syncInfo directly, don't create fallback unless needed
                     if (syncInfo) {
+                        matchCount++;
+                        // Mark this sync entry as CONSUMED so no other duplicate video can use it
+                        consumedSyncEntries.add(syncInfo.displayTitle || syncInfo.id);
+                        
                         video._syncStatus = syncInfo;
                         if (syncInfo.isDownloaded) downloadedCount++;
                     } else {
@@ -1878,13 +2048,21 @@
                 console.log('   - Videos marked as downloaded:', downloadedCount);
                 // ==================== END DEBUG ====================
                 
-                // Sort: downloaded first, then by title
-                sortedVideos.sort((a, b) => {
-                    const aDownloaded = a._syncStatus && a._syncStatus.isDownloaded ? 1 : 0;
-                    const bDownloaded = b._syncStatus && b._syncStatus.isDownloaded ? 1 : 0;
-                    if (bDownloaded !== aDownloaded) return bDownloaded - aDownloaded;
-                    return (a.displayTitle || a.title).localeCompare(b.displayTitle || b.title);
+                // ==================== VIDEO-LEVEL DEDUPLICATION ====================
+                // Remove duplicate video entries (same video appearing multiple times in source)
+                const seenVideoIds = new Set();
+                const beforeDedup = sortedVideos.length;
+                sortedVideos = sortedVideos.filter((video) => {
+                    // Use displayTitle (or id) as unique key
+                    const videoKey = video.displayTitle || video.id || video.title;
+                    if (seenVideoIds.has(videoKey)) {
+                        return false; // Duplicate - REMOVE IT
+                    }
+                    seenVideoIds.add(videoKey);
+                    return true; // First occurrence - KEEP IT
                 });
+                console.log('🔍 [FILTER-DEBUG] Deduplication:', beforeDedup, '→', sortedVideos.length, '(removed', beforeDedup - sortedVideos.length, 'duplicates)');
+                // ==================== END DEDUPLICATION ====================
                 
                 // APPLY FILTER based on currentSyncFilter
                 const beforeFilter = sortedVideos.length;
@@ -1898,6 +2076,38 @@
                 } else {
                     console.log('🔍 [FILTER-DEBUG] No filter applied (ALL)');
                 }
+                
+                // ==================== ASCENDING ALPHABETICAL SORT (A-Z) ====================
+                // Sort videos with SMART ORDERING:
+                // - [All] button: Downloaded (A-Z) FIRST, then Remaining (A-Z)
+                // - Other buttons: Pure A-Z within that filter
+                const beforeSort = sortedVideos.length;
+                
+                if (currentSyncFilter === 'all') {
+                    // [ALL] button: Downloaded files ON TOP, remaining BELOW, both A-Z
+                    sortedVideos.sort((a, b) => {
+                        const aDownloaded = a._syncStatus && a._syncStatus.isDownloaded ? 1 : 0;
+                        const bDownloaded = b._syncStatus && b._syncStatus.isDownloaded ? 1 : 0;
+                        
+                        // Downloaded (1) comes before remaining (0)
+                        if (bDownloaded !== aDownloaded) return bDownloaded - aDownloaded;
+                        
+                        // Within each group: A-Z ascending
+                        const titleA = (a.displayTitle || a.title || '').toLowerCase();
+                        const titleB = (b.displayTitle || b.title || '').toLowerCase();
+                        return titleA.localeCompare(titleB);
+                    });
+                    console.log('🔍 [FILTER-DEBUG] Sorted', beforeSort, 'videos: Downloaded (A-Z) top, then Remaining (A-Z)');
+                } else {
+                    // [Downloaded] or [Remaining]: Pure A-Z ascending
+                    sortedVideos.sort((a, b) => {
+                        const titleA = (a.displayTitle || a.title || '').toLowerCase();
+                        const titleB = (b.displayTitle || b.title || '').toLowerCase();
+                        return titleA.localeCompare(titleB);
+                    });
+                    console.log('🔍 [FILTER-DEBUG] Sorted', beforeSort, 'videos in ascending order (A-Z)');
+                }
+                // ==================== END SORT ====================
                 
                 console.log('🔍 [FILTER-DEBUG] Videos after filter:', sortedVideos.length, '(was', beforeFilter, ')');
                 // 'all' shows everything - no filter needed
@@ -1963,24 +2173,13 @@
                     </div>
                 ` : '';
                 
-                // Sync progress bar HTML
-                const syncProgressWidth = isDownloaded ? '100' : '0';
+                // Sync progress bar HTML - COMPACT INLINE
                 const syncProgressHtml = isSynced ? `
                     <div class="sync-progress-container">
-                        <div class="sync-progress-header">
-                            <span class="sync-progress-label">📁 ${isDownloaded ? video._syncStatus.fileInfo?.fileName || video._syncStatus.expectedFilename : 'Not downloaded'}</span>
-                            <span class="sync-progress-status ${isDownloaded ? 'sync-status-downloaded' : 'sync-status-new'}">
-                                ${isDownloaded ? '✅ 100%' : '🔴 0%'}
-                            </span>
-                        </div>
-                        <div class="sync-progress-bar">
-                            <div class="sync-progress-fill ${isDownloaded ? 'downloaded' : 'new'}" style="width: ${syncProgressWidth}%"></div>
-                        </div>
-                        ${isDownloaded && video._syncStatus.fileInfo ? `
-                            <div style="margin-top: 4px; font-size: 10px; color: #2e7d32;">
-                                📦 ${(video._syncStatus.fileInfo.fileSizeMB || '0')} MB | 📅 ${new Date(video._syncStatus.fileInfo.downloadedAt).toLocaleDateString()}
-                            </div>
-                        ` : ''}
+                        <span class="sync-progress-status ${isDownloaded ? 'sync-status-downloaded' : 'sync-status-new'}">
+                            ${isDownloaded ? '✅ 100%' : '🔴 0%'}
+                        </span>
+                        ${isDownloaded && video._syncStatus.fileInfo ? `<span style="font-size: 10px; color: #2e7d32;">📦${video._syncStatus.fileInfo.fileSizeMB}MB</span>` : ''}
                     </div>
                 ` : '';
                 
@@ -1992,75 +2191,39 @@
                            onchange="toggleVideo(${originalIndex})">
                     
                     <div class="video-info">
-                        <div class="video-title">${escapeHtml(video.displayTitle || video.title)}</div>
+                        <div class="video-title" title="${escapeHtml(video.displayTitle || video.title)}">${escapeHtml(video.displayTitle || video.title)}</div>
                         <div class="video-meta">
-                            ${video.duration ? `<span>⏱️ ${formatDuration(video.duration)}</span>` : ''}
-                            ${video.views && video.views !== 'NA' ? `<span>👁️ ${formatNumber(video.views)}` : ''}
-                        </div>
-                        
-                        ${fileInfoHtml}
-                        
-                        <!-- Filename display -->
-                        <div id="filename-${originalIndex}" style="${video.finalFilename ? '' : 'display:none'}" class="renamed-filename">
-                            📄 ${escapeHtml(video.finalFilename || '')}
+                            ${video.duration ? `<span>⏱️${formatDuration(video.duration)}</span>` : ''}
+                            ${video.views && video.views !== 'NA' ? `<span>👁️${formatNumber(video.views)}</span>` : ''}
                         </div>
                     </div>
+
+                    <!-- Sync Status (inline) -->
+                    ${syncProgressHtml}
 
                     <!-- Action Buttons -->
                     <div class="video-actions">
                         ${video.downloadStatus === 'downloading' ? `
                             <span class="status-badge status-downloading">
-                                <span class="spinner"></span> ${Math.round(video.progress || 0)}%
+                                <span class="spinner"></span>${Math.round(video.progress || 0)}%
                             </span>
                         ` : video.downloadStatus === 'completed' || video.downloadStatus === 'downloaded' ? `
-                            <button class="btn-success btn-small" onclick="downloadFile('${video.id || ''}', '${(video.title || 'video').replace(/'/g, "\\'")}', '${video.filePath || video.finalFilename || video.downloadFilename || ''}')">
-                                📥 Get File
-                            </button>
-                            <span style="color: #388e3c; font-size: 0.8em; font-weight: 600;">✅ Done</span>
+                            <button class="btn-success btn-small" onclick="downloadFile('${video.id || ''}', '${(video.title || 'video').replace(/'/g, "\\'")}', '${video.filePath || video.finalFilename || video.downloadFilename || ''}')">📥</button>
                         ` : video.downloadStatus === 'skipped' ? `
-                            <button class="btn-success btn-small" onclick="downloadFile('${video.id || ''}', '${(video.title || 'video').replace(/'/g, "\\'")}', '${video.filePath || video.downloadFilename || ''}')">
-                                📥 Get File
-                            </button>
-                            <span style="color: #f57c00; font-size: 0.8em;">⏭️ Exists</span>
+                            <button class="btn-success btn-small" onclick="downloadFile('${video.id || ''}', '${(video.title || 'video').replace(/'/g, "\\'")}', '${video.filePath || video.downloadFilename || ''}')">📥</button>
                         ` : video.downloadStatus === 'error' ? `
-                            <button class="btn-danger btn-small" onclick="downloadVideo(${originalIndex})">
-                                🔄 Retry
-                            </button>
+                            <button class="btn-danger btn-small" onclick="downloadVideo(${originalIndex})">🔄</button>
                         ` : `
-                            <button class="btn-primary btn-small" onclick="downloadVideo(${originalIndex})">
-                                ⬇️ Download
-                            </button>
+                            <button class="btn-primary btn-small" onclick="downloadVideo(${originalIndex})">⬇️</button>
                         `}
                     </div>
-
-                    <!-- Sync Progress Bar -->
-                    ${syncProgressHtml}
-
-                    <!-- Progress Bar with Live Updates -->
-                    <div class="progress-container" id="progress-container-${originalIndex}" style="${(video.downloadStatus === 'downloading' || video.downloadStatus === 'completed') && video.progress > 0 ? '' : 'display:none'}">
-                        <div class="progress-bar">
-                            <div class="progress-fill ${video.progress >= 100 ? 'complete' : 'active'}" 
-                                 id="progress-fill-${originalIndex}"
-                                 style="width: ${Math.min(video.progress || 0, 100)}%">
-                            </div>
-                        </div>
-                        <div class="progress-details">
-                            <span class="progress-percent" id="progress-percent-${originalIndex}">
-                                ${video.progress >= 100 ? '✅ Complete!' : `${Math.round(video.progress || 0)}%`}
-                            </span>
-                            <span class="progress-speed" id="progress-speed-${originalIndex}">
-                                ${video.speed ? `🚀 ${video.speed}` : ''}
-                            </span>
-                            <span class="progress-size" id="progress-size-${originalIndex}">
-                                ${video.total ? `📦 ${video.total}` : ''}
-                            </span>
-                        </div>
-                    </div>
-                </div>
-            `;
+                </div>`;
             });
             
             container.innerHTML = html;
+            
+            // Store the filtered videos globally for filter-aware Select All
+            currentFilteredVideos = sortedVideos;
             
             // Check for active downloads and start live sync
             if (videos.some(v => v.downloadStatus === 'downloading')) {
@@ -2079,11 +2242,20 @@
 
         function toggleSelectAll() {
             const selectAll = document.getElementById('selectAll');
-            videos.forEach((video, index) => {
-                if (selectAll.checked) {
-                    selectedVideos.add(index);
-                } else {
-                    selectedVideos.delete(index);
+            
+            // FIX: Use currentFilteredVideos (respects active filter) instead of all videos
+            // This ensures Select All only selects videos visible in current filter
+            const videosToToggle = currentFilteredVideos.length > 0 ? currentFilteredVideos : videos;
+            
+            videosToToggle.forEach((video) => {
+                // Find the original index in the full videos array
+                const originalIndex = videos.indexOf(video);
+                if (originalIndex !== -1) {
+                    if (selectAll.checked) {
+                        selectedVideos.add(originalIndex);
+                    } else {
+                        selectedVideos.delete(originalIndex);
+                    }
                 }
             });
             renderVideos();
@@ -2092,7 +2264,11 @@
 
         function updateSelectedCount() {
             const count = selectedVideos.size;
-            document.getElementById('selectedCount').textContent = `${count} selected`;
+            const totalVisible = currentFilteredVideos.length > 0 ? currentFilteredVideos.length : videos.length;
+            
+            // Show contextual count: "X of Y selected" where Y = visible in current filter
+            document.getElementById('selectedCount').textContent = 
+                `${count} of ${totalVisible} selected`;
             document.getElementById('downloadSelectedBtn').disabled = count === 0;
         }
 
@@ -2590,7 +2766,7 @@
                 }
                 
                 return `
-                <div class="queue-item ${item.isWaiting ? 'waiting' : 'downloading'}">
+                <div class="queue-item ${item.isWaiting ? 'waiting' : 'downloading'}" id="queue-${item.id || item.downloadId}">
                     <div class="queue-item-info">
                         <span class="queue-position">${item.position}</span>
                         <span class="queue-item-title" title="${escapeHtml(item.title || item.id || 'Download')}">${escapeHtml(item.title || item.id || 'Download')}</span>
@@ -2601,6 +2777,41 @@
                             : `<span class="status-badge queue-active">▶️ ${item.progress || 0}%</span>`
                         }
                         ${item.speed && !item.isWaiting ? `<span style="color:#666">@${item.speed}</span>` : ''}
+                        
+                        <!-- 4 Action Buttons: Stop | Cancel | Remove | Force Stop -->
+                        <div class="queue-actions">
+                            <!-- STOP: Pause/Resume (Blue) -->
+                            <button class="queue-btn queue-btn-stop" 
+                                    onclick="event.stopPropagation(); stopQueueItem('${item.id || item.downloadId}', '${escapeHtml(item.title || 'Download')}')"
+                                    title="Stop/Pause Download">
+                                ⏸️
+                            </button>
+                            
+                            <!-- CANCEL: Cancel with confirmation (Red) -->
+                            <button class="queue-btn queue-btn-cancel" 
+                                    onclick="event.stopPropagation(); showCancelConfirm('${item.id || item.downloadId}', '${escapeHtml(item.title || 'Download')}', 'cancel')"
+                                    title="Cancel Download">
+                                ❌
+                            </button>
+                            
+                            <!-- REMOVE: Remove from queue (Gray) - Only for waiting -->
+                            ${item.isWaiting ? `
+                            <button class="queue-btn queue-btn-remove" 
+                                    onclick="event.stopPropagation(); removeQueueItem('${item.id || item.downloadId}', '${escapeHtml(item.title || 'Download')}')"
+                                    title="Remove from Queue">
+                                🗑️
+                            </button>
+                            ` : ''}
+                            
+                            <!-- FORCE STOP: Kill process immediately (Dark Red) - Only for active -->
+                            ${!item.isWaiting ? `
+                            <button class="queue-btn queue-btn-force" 
+                                    onclick="event.stopPropagation(); showCancelConfirm('${item.id || item.downloadId}', '${escapeHtml(item.title || 'Download')}', 'force')"
+                                    title="Force Stop (Kill Process)">
+                                ⛔
+                            </button>
+                            ` : ''}
+                        </div>
                     </div>
                 </div>
             `;
@@ -2632,6 +2843,206 @@
                 })
                 .catch(err => console.error('Error clearing queue:', err));
         }
+
+        // ==================== QUEUE ACTION FUNCTIONS (4 Buttons) ====================
+        
+        // Store pending action for confirmation modal
+        let pendingQueueAction = null;
+
+        // SHOW CONFIRMATION MODAL (for Cancel & Force Stop)
+        function showCancelConfirm(downloadId, title, actionType) {
+            const isForce = actionType === 'force';
+            const actionName = isForce ? 'Force Stop' : 'Cancel';
+            const icon = isForce ? '⛔' : '❌';
+            const message = isForce 
+                ? `Are you sure you want to <strong>FORCE STOP</strong> this download?<br><br>
+                   <span style="color:#c62828">⚠️ This will immediately kill the download process!</span><br>
+                   The partial file may be corrupted.`
+                : `Are you sure you want to <strong>cancel</strong> this download?<br><br>
+                   "<em>${escapeHtml(title)}</em>"<br>
+                   This action cannot be undone.`;
+            
+            pendingQueueAction = { downloadId, title, actionType };
+            
+            // Create modal
+            const modalHtml = `
+                <div class="confirm-modal-overlay" id="confirmModal" onclick="closeConfirmModal(event)">
+                    <div class="confirm-modal" onclick="event.stopPropagation()">
+                        <div class="confirm-modal-title">
+                            ${icon} Confirm ${actionName}
+                        </div>
+                        <div class="confirm-modal-message">
+                            ${message}
+                        </div>
+                        <div class="confirm-modal-actions">
+                            <button class="confirm-modal-btn confirm-modal-btn-cancel-action" 
+                                    onclick="closeConfirmModal()">
+                                No, Keep It
+                            </button>
+                            <button class="confirm-modal-btn confirm-modal-btn-confirm" 
+                                    onclick="executeConfirmedAction()">
+                                ✅ Yes, ${actionName}
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            `;
+            
+            // Append to body
+            document.body.insertAdjacentHTML('beforeend', modalHtml);
+        }
+
+        // Close confirmation modal
+        function closeConfirmModal(event) {
+            if (event && event.target !== event.currentTarget) return;
+            const modal = document.getElementById('confirmModal');
+            if (modal) modal.remove();
+            pendingQueueAction = null;
+        }
+
+        // Execute the confirmed action (Cancel or Force Stop)
+        async function executeConfirmedAction() {
+            if (!pendingQueueAction) return;
+            
+            const { downloadId, title, actionType } = pendingQueueAction;
+            closeConfirmModal();
+            
+            if (actionType === 'force') {
+                await forceStopQueueItem(downloadId, title);
+            } else {
+                await cancelQueueItem(downloadId, title);
+            }
+        }
+
+        // ACTION 1: STOP / PAUSE (Blue button)
+        async function stopQueueItem(downloadId, title) {
+            try {
+                console.log(`[Queue] ⏸️ Stopping: ${title} (${downloadId})`);
+                
+                // Call server to pause/stop the download
+                const response = await fetch(`${API_BASE}/api/download/${downloadId}/stop`, { 
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ action: 'pause' })
+                });
+                
+                const result = await response.json();
+                
+                if (result.success) {
+                    showAlert(`⏸️ Paused: ${title}`, 'info', 3000);
+                    addLogEntry(`⏸️ Download paused: ${title}`, 'info');
+                } else {
+                    showAlert(`⚠️ Stop failed: ${result.error}`, 'warning', 4000);
+                }
+                
+                refreshQueue();
+            } catch (error) {
+                console.error('[Queue] Error stopping download:', error);
+                showAlert(`❌ Error stopping: ${error.message}`, 'error', 4000);
+            }
+        }
+
+        // ACTION 2: CANCEL (Red button - with confirmation)
+        async function cancelQueueItem(downloadId, title) {
+            try {
+                console.log(`[Queue] ❌ Cancelling: ${title} (${downloadId})`);
+                
+                // Show loading state on the item
+                const itemEl = document.getElementById(`queue-${downloadId}`);
+                if (itemEl) itemEl.style.opacity = '0.5';
+                
+                const response = await fetch(`${API_BASE}/api/download/${downloadId}/cancel`, { 
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ reason: 'user_cancelled' })
+                });
+                
+                const result = await response.json();
+                
+                if (result.success) {
+                    showAlert(`❌ Cancelled: ${title}`, 'warning', 3000);
+                    addLogEntry(`❌ Download cancelled by user: ${title}`, 'warning');
+                } else {
+                    showAlert(`⚠️ Cancel failed: ${result.error}`, 'warning', 4000);
+                    if (itemEl) itemEl.style.opacity = '1';
+                }
+                
+                refreshQueue();
+            } catch (error) {
+                console.error('[Queue] Error cancelling download:', error);
+                showAlert(`❌ Error cancelling: ${error.message}`, 'error', 4000);
+            }
+        }
+
+        // ACTION 3: REMOVE FROM QUEUE (Gray button - no confirmation)
+        async function removeQueueItem(downloadId, title) {
+            try {
+                console.log(`[Queue] 🗑️ Removing from queue: ${title} (${downloadId})`);
+                
+                const response = await fetch(`${API_BASE}/api/download/${downloadId}/remove`, { 
+                    method: 'DELETE'
+                });
+                
+                const result = await response.json();
+                
+                if (result.success) {
+                    showAlert(`🗑️ Removed: ${title}`, 'info', 2500);
+                    addLogEntry(`🗑️ Removed from queue: ${title}`, 'info');
+                    
+                    // Animate removal
+                    const itemEl = document.getElementById(`queue-${downloadId}`);
+                    if (itemEl) {
+                        itemEl.style.transition = 'all 0.3s ease';
+                        itemEl.style.transform = 'translateX(100%)';
+                        itemEl.style.opacity = '0';
+                        setTimeout(() => refreshQueue(), 300);
+                    } else {
+                        refreshQueue();
+                    }
+                } else {
+                    showAlert(`⚠️ Remove failed: ${result.error}`, 'warning', 4000);
+                }
+            } catch (error) {
+                console.error('[Queue] Error removing from queue:', error);
+                showAlert(`❌ Error removing: ${error.message}`, 'error', 4000);
+            }
+        }
+
+        // ACTION 4: FORCE STOP (Dark Red button - with confirmation)
+        async function forceStopQueueItem(downloadId, title) {
+            try {
+                console.log(`[Queue] ⛔ Force stopping: ${title} (${downloadId})`);
+                
+                // Show loading state
+                const itemEl = document.getElementById(`queue-${downloadId}`);
+                if (itemEl) {
+                    itemEl.style.background = '#ffebee';
+                    itemEl.style.borderLeftColor = '#c62828';
+                }
+                
+                const response = await fetch(`${API_BASE}/api/download/${downloadId}/force-stop`, { 
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ killProcess: true })
+                });
+                
+                const result = await response.json();
+                
+                if (result.success) {
+                    showAlert(`⛔ Force Stopped: ${title}`, 'error', 4000);
+                    addLogEntry(`⛽ FORCE STOPPED by user: ${title} (process killed)`, 'error');
+                } else {
+                    showAlert(`⚠️ Force stop failed: ${result.error}`, 'warning', 4000);
+                }
+                
+                refreshQueue();
+            } catch (error) {
+                console.error('[Queue] Error force stopping:', error);
+                showAlert(`❌ Error force stopping: ${error.message}`, 'error', 4000);
+            }
+        }
+
+        // ==================== END QUEUE ACTION FUNCTIONS ====================
 
         // ==================== SETTINGS FUNCTIONS ====================
         
