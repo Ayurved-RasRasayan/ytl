@@ -1155,9 +1155,19 @@ function fetchChannelInfo(channelId, channelUrl) {
         console.log('\n[fetchChannelInfo] Starting channel fetch...');
         console.log('[fetchChannelInfo] Channel URL:', channelUrl);
         
-        const cmd = `yt-dlp --flat-playlist --print "%(id)s\t%(title)s\t%(duration)s\t%(view_count)s\t%(upload_date)s" "${channelUrl}"`;
+        // ⭐⭐⭐ BUG FIX #2a/2b: Use JSON format instead of tab-separated ⭐⭐⭐
+        // PROBLEM: Tab-separated format caused video count inflation (236 vs 140)
+        // ROOT CAUSE: 
+        //   - On Linux: \t stays literal (no split) → 0 videos or wrong parse
+        //   - On Windows: Shell converts \t to real tabs, but titles with special chars
+        //     cause one video to split into multiple entries → INFLATION
+        // SOLUTION: Use JSON output (-j flag) which is reliable across all platforms
+        // Each line is a complete JSON object, no parsing ambiguity!
         
-        console.log('[fetchChannelInfo] Command:', cmd.substring(0, 100) + '...');
+        const cmd = `yt-dlp --flat-playlist -j "${channelUrl}"`;
+        
+        console.log('[fetchChannelInfo] Command:', cmd);
+        console.log('[fetchChannelInfo] Using JSON format for reliable parsing');
         
         const strategies = buildCommandsWithCookieStrategies(cmd, channelUrl);
         
@@ -1171,42 +1181,58 @@ function fetchChannelInfo(channelId, channelUrl) {
                     const lines = stdout.trim().split('\n').filter(line => line.trim());
                     const videos = [];
                     const liveVideos = [];
+                    const seenIds = new Set();  // ⭐ Track seen IDs to prevent duplicates
+                    
+                    console.log(`[fetchChannelInfo] Raw JSON lines received: ${lines.length}`);
                     
                     lines.forEach((line, index) => {
-                        const parts = line.split('\t');
-                        if (parts.length >= 2) {
-                            const rawDuration = parts[2] ? parseInt(parts[2]) : null;
-                            const videoTitle = parts[1]?.trim() || 'Untitled';
+                        try {
+                            // Parse JSON object (one per line)
+                            const data = JSON.parse(line);
+                            
+                            const videoId = data.id || `video_${index}`;
+                            const videoTitle = (data.title || 'Untitled').trim();
+                            const rawDuration = data.duration ? parseInt(data.duration) : null;
+                            
+                            // ⭐ DEDUPLICATION: Skip if we've already seen this video ID
+                            if (seenIds.has(videoId)) {
+                                console.log(`[fetchChannelInfo] ⚠️ Duplicate ID skipped: ${videoId} - ${videoTitle}`);
+                                return;  // Skip this duplicate
+                            }
+                            seenIds.add(videoId);
                             
                             const video = {
-                                id: parts[0]?.trim() || `video_${index}`,
+                                id: videoId,
                                 title: videoTitle,
                                 duration: rawDuration,
-                                views: parts[3] ? parseInt(parts[3]) : null,
-                                uploadDate: parts[4]?.trim() || null,
-                                // ⭐ BUG FIX #2 & #5: Track video type for better filtering
+                                views: data.view_count ? parseInt(data.view_count) : null,
+                                uploadDate: data.upload_date || null,
+                                // Track video type for better filtering
                                 isLiveStream: videoTitle.toLowerCase().includes('live'),
                                 isPremiere: videoTitle.toLowerCase().includes('premiere'),
                             };
                             
-                            // ⭐ BUG FIX #5: Improved duration filtering
+                            // Improved duration filtering
                             // - Filter out shorts (< 60 seconds)
                             // - Filter out invalid durations (0, negative, NaN)
                             // - Keep videos with null duration (some valid videos don't report duration in flat playlist)
                             const isValidDuration = rawDuration === null || 
-                                                  (rawDuration >= 60 && rawDuration < 86400); // Max 24 hours
+                                                  (!isNaN(rawDuration) && rawDuration >= 60 && rawDuration < 86400); // Max 24 hours
                             
                             if (isValidDuration) {
                                 videos.push(video);
                             } else {
                                 console.log(`[fetchChannelInfo] Filtered out short/invalid duration video: ${videoTitle} (${rawDuration}s)`);
                             }
+                        } catch (parseError) {
+                            console.warn(`[fetchChannelInfo] Failed to parse line ${index}:`, parseError.message.substring(0, 100));
+                            // Continue with next line instead of failing completely
                         }
                     });
                     
-                    console.log(`[fetchChannelInfo] Parsed ${videos.length} videos`);
+                    console.log(`[fetchChannelInfo] ✅ Parsed ${videos.length} unique videos (from ${lines.length} raw lines)`);
                     
-                    // ⭐ NEW: Process duplicate titles - append duration to duplicates
+                    // Process duplicate titles - append duration to duplicates
                     const processedVideos = processDuplicateTitles(videos);
                     
                     resolve({
