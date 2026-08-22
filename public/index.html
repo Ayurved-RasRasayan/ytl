@@ -1615,7 +1615,7 @@
                            onchange="toggleVideo(${index})">
                     
                     <div class="video-info">
-                        <div class="video-title">${escapeHtml(video.title)}</div>
+                        <div class="video-title">${escapeHtml(video.displayTitle || video.title)}</div>
                         <div class="video-meta">
                             ${video.duration ? `<span>⏱️ ${formatDuration(video.duration)}</span>` : ''}
                             ${video.views && video.views !== 'NA' ? `<span>👁️ ${formatNumber(video.views)}` : ''}
@@ -1636,12 +1636,12 @@
                                 <span class="spinner"></span> ${Math.round(video.progress || 0)}%
                             </span>
                         ` : video.downloadStatus === 'completed' || video.downloadStatus === 'downloaded' ? `
-                            <button class="btn-success btn-small" onclick="downloadFile('${video.id || ''}', '${(video.title || 'video').replace(/'/g, "\\'")}', '${video.filePath || video.finalFilename || ''}')">
+                            <button class="btn-success btn-small" onclick="downloadFile('${video.id || ''}', '${(video.title || 'video').replace(/'/g, "\\'")}', '${video.filePath || video.finalFilename || video.downloadFilename || ''}')">
                                 📥 Get File
                             </button>
                             <span style="color: #388e3c; font-size: 0.8em; font-weight: 600;">✅ Done</span>
                         ` : video.downloadStatus === 'skipped' ? `
-                            <button class="btn-success btn-small" onclick="downloadFile('${video.id || ''}', '${(video.title || 'video').replace(/'/g, "\\'")}', '${video.filePath || ''}')">
+                            <button class="btn-success btn-small" onclick="downloadFile('${video.id || ''}', '${(video.title || 'video').replace(/'/g, "\\'")}', '${video.filePath || video.downloadFilename || ''}')">
                                 📥 Get File
                             </button>
                             <span style="color: #f57c00; font-size: 0.8em;">⏭️ Exists</span>
@@ -1722,7 +1722,7 @@
             video.downloadStatus = 'downloading';
             video.progress = 0;
             
-            addLogEntry(`▶️ Starting download: "${video.title.substring(0, 40)}..."`, 'info');
+            addLogEntry(`▶️ Starting download: "${(video.displayTitle || video.title).substring(0, 40)}..."`, 'info');
             renderVideos();
 
             try {
@@ -1731,7 +1731,8 @@
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({
                         videoId: video.id || video.videoId,
-                        title: video.title,
+                        title: video.displayTitle || video.title,
+                        filename: video.downloadFilename || null,  // ⭐ NEW: Pass downloadFilename for duplicates
                         channelId: currentChannel?.id,
                         channelName: currentChannel?.name,
                         format: 'best',
@@ -1745,12 +1746,12 @@
                     video.downloadStatus = 'skipped';
                     video.fileSize = result.download?.sizeMB;
                     video.filePath = result.download?.filename;
-                    showAlert(`${video.title.substring(0, 50)}... - Already exists!`, 'warning');
-                    addLogEntry(`⏭️ Skipped (exists): "${video.title.substring(0, 30)}..."`, 'warning');
+                    showAlert(`${(video.displayTitle || video.title).substring(0, 50)}... - Already exists!`, 'warning');
+                    addLogEntry(`⏭️ Skipped (exists): "${(video.displayTitle || video.title).substring(0, 30)}..."`, 'warning');
                 } else if (result.success) {
                     video.jobId = result.jobId;
-                    showAlert(`Started: ${video.title.substring(0, 50)}...`, 'info');
-                    addLogEntry(`✅ Download queued: "${video.title.substring(0, 30)}..." [Job: ${result.jobId}]`, 'success');
+                    showAlert(`Started: ${(video.displayTitle || video.title).substring(0, 50)}...`, 'info');
+                    addLogEntry(`✅ Download queued: "${(video.displayTitle || video.title).substring(0, 30)}..." [Job: ${result.jobId}]`, 'success');
                     startLiveProgressSync();
                 } else {
                     throw new Error(result.error || 'Download failed');
@@ -1763,7 +1764,7 @@
                 video.error = error.message;
                 renderVideos();
                 showAlert(`Error: ${error.message}`, 'error');
-                addLogEntry(`❌ Download failed: "${video.title.substring(0, 30)}..." - ${error.message}`, 'error');
+                addLogEntry(`❌ Download failed: "${(video.displayTitle || video.title).substring(0, 30)}..." - ${error.message}`, 'error');
             }
         }
         

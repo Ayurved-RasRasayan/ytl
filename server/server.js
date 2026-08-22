@@ -11,43 +11,45 @@ const os = require('os');
 // AUTHENTICATION & SECURITY MODULES
 // =============================================================================
 
-// Load environment variables
-const dotenv = require('dotenv');
-dotenv.config({ path: path.join(__dirname, '.env') });
-
 const session = require('express-session');
 const rateLimit = require('express-rate-limit');
 
 // =============================================================================
-// AUTHENTICATION CONFIGURATION
+// ⭐ AUTHENTICATION CONFIGURATION - EDIT YOUR CREDENTIALS HERE!
 // =============================================================================
+// TODO: Change these values to your desired username and password
+// You can also change the session secret to any random string
 
 const AUTH_CONFIG = {
-    username: process.env.ADMIN_USERNAME,
-    password: process.env.ADMIN_PASSWORD,
-    sessionSecret: process.env.SESSION_SECRET || 'change-me-to-random-secret',
-    sessionMaxAge: 2 * 24 * 60 * 60 * 1000,  // 2 days in milliseconds
-    cookieFilePath: process.env.COOKIE_FILE_PATH || path.join(process.cwd(), 'cookies.txt'),
-    browserName: process.env.BROWSER_NAME || 'edge' // chrome, firefox, edge, safari
+    username: 'admin',                    // ← CHANGE THIS: Your login username
+    password: 'password123',              // ← CHANGE THIS: Your login password  
+    sessionSecret: 'ytl-secret-key-2024',  // ← CHANGE THIS: Any random string (for sessions)
+    
+    // Session settings (you probably don't need to change these)
+    sessionMaxAge: 2 * 24 * 60 * 60 * 1000,  // 2 days in milliseconds (172800000ms)
+    cookieFilePath: path.join(process.cwd(), 'cookies.txt'),
+    browserName: 'edge' // chrome, firefox, edge, safari
 };
 
-// Validate auth config on startup
+// Validate auth config on startup (basic check)
 function validateAuthConfig() {
-    if (!AUTH_CONFIG.username || !AUTH_CONFIG.password) {
-        console.error(`
+    console.log(`
 ╔══════════════════════════════════════════════════════════════╗
-║  ⚠️  AUTHENTICATION NOT CONFIGURED!                          ║
+║  🔐 Authentication Configuration                              ║
 ╠══════════════════════════════════════════════════════════════╣
-║  Please create a .env file in the server/ directory with:    ║
+║  Username: ${AUTH_CONFIG.username}
+║  Password: ${'*'.repeat(AUTH_CONFIG.password.length)} (hidden)
+║  Session Duration: ${(AUTH_CONFIG.sessionMaxAge / (1000 * 60 * 60 * 24)).toFixed(1)} days
 ║                                                              ║
-║    ADMIN_USERNAME=your_username                              ║
-║    ADMIN_PASSWORD=your_secure_password                       ║
-║    SESSION_SECRET=random_string_here                         ║
-║                                                              ║
-║  See .env.example for more details                           ║
+║  💡 To change credentials, edit this file (server.js)       ║
+║     and modify the AUTH_CONFIG object above                 ║
 ╚══════════════════════════════════════════════════════════════╝
-        `);
-        process.exit(1);
+    `);
+    
+    // Optional: Warn if using default credentials
+    if (AUTH_CONFIG.username === 'admin' && AUTH_CONFIG.password === 'password123') {
+        console.warn('⚠️  WARNING: You are using default credentials!');
+        console.warn('   It is recommended to change them in server.js for better security.\n');
     }
 }
 
@@ -562,6 +564,144 @@ function getUniqueFilename(directory, originalFilename) {
 }
 
 // =============================================================================
+// DUPLICATE TITLE HANDLER - Append duration to duplicate video titles
+// =============================================================================
+
+/**
+ * Convert duration from seconds to human-readable format (21m-26s)
+ * @param {number|null} seconds - Duration in seconds
+ * @returns {string} Formatted duration like "21m-26s" or "" if not available
+ */
+function formatDurationForDisplay(seconds) {
+    if (!seconds || seconds <= 0) {
+        return '';
+    }
+    
+    const minutes = Math.floor(seconds / 60);
+    const remainingSeconds = Math.round(seconds % 60);
+    
+    // Format: 21m-26s
+    if (minutes > 0 && remainingSeconds > 0) {
+        return `${minutes}m-${remainingSeconds}s`;
+    } else if (minutes > 0) {
+        return `${minutes}m`;
+    } else {
+        return `${remainingSeconds}s`;
+    }
+}
+
+/**
+ * Sanitize text for safe filename usage
+ * Replaces special characters with safe alternatives
+ * @param {string} text - Original text
+ * @returns {string} Sanitized filename-safe text
+ */
+function sanitizeFilename(text) {
+    if (!text) return 'untitled';
+    
+    return text
+        .replace(/[<>:"/\\|?*]/g, '-')  // Replace illegal chars with dash
+        .replace(/\s+/g, ' ')            // Collapse multiple spaces
+        .trim()
+        .substring(0, 200);              // Limit length for filesystem safety
+}
+
+/**
+ * Process video list to detect and handle duplicate titles
+ * Appends duration to duplicate titles to make them unique
+ * 
+ * @param {Array} videos - Array of video objects with title and duration
+ * @returns {Array} Processed videos with displayTitle and downloadFilename added
+ */
+function processDuplicateTitles(videos) {
+    if (!videos || videos.length === 0) {
+        return [];
+    }
+    
+    console.log('\n[Duplicate Titles] Processing', videos.length, 'videos for duplicates...');
+    
+    // Step 1: Count occurrences of each title (case-insensitive)
+    const titleCount = {};
+    videos.forEach(video => {
+        const normalizedTitle = (video.title || '').toLowerCase().trim();
+        titleCount[normalizedTitle] = (titleCount[normalizedTitle] || 0) + 1;
+    });
+    
+    // Count how many titles are duplicated
+    const duplicateTitles = Object.entries(titleCount).filter(([title, count]) => count > 1);
+    console.log('[Duplicate Titles] Found', duplicateTitles.length, 'duplicate title(s):');
+    duplicateTitles.forEach(([title, count]) => {
+        console.log('   - "' + title + '" appears', count, 'times');
+    });
+    
+    // Step 2: Track which durations we've used for each title (to handle edge case of same title + same duration)
+    const titleDurationUsage = {};
+    
+    // Step 3: Process each video
+    const processedVideos = videos.map((video, index) => {
+        const originalTitle = video.title || 'Untitled';
+        const normalizedTitle = originalTitle.toLowerCase().trim();
+        const isDuplicate = titleCount[normalizedTitle] > 1;
+        
+        // Create base processed video object
+        const processedVideo = {
+            ...video,
+            originalTitle: originalTitle,
+            displayTitle: originalTitle,      // What frontend shows
+            downloadFilename: null           // What file will be named (set on download)
+        };
+        
+        // Only append duration if this is a duplicate title AND has duration available
+        if (isDuplicate && video.duration) {
+            const durationStr = formatDurationForDisplay(video.duration);
+            
+            if (durationStr) {
+                // Create unique key for this title+duration combo
+                const titleDurationKey = `${normalizedTitle}|${durationStr}`;
+                
+                // Check if we've already used this exact title+duration combination
+                if (!titleDurationUsage[titleDurationKey]) {
+                    titleDurationUsage[titleDurationKey] = 1;
+                } else {
+                    // Same title AND same duration - add counter as fallback
+                    titleDurationUsage[titleDurationKey]++;
+                }
+                
+                const usageCount = titleDurationUsage[titleDurationKey];
+                
+                // Build display title: "Original Title (21m-26s)"
+                processedVideo.displayTitle = `${originalTitle} (${durationStr})`;
+                
+                // Build download filename: "original-title-(21m-26s).mp4"
+                const sanitizedBase = sanitizeFilename(originalTitle);
+                if (usageCount > 1) {
+                    // Edge case: same title + same duration, add counter
+                    processedVideo.downloadFilename = `${sanitizedBase}-(${durationStr})-${usageCount}.mp4`;
+                } else {
+                    processedVideo.downloadFilename = `${sanitizedBase}-(${durationStr}).mp4`;
+                }
+                
+                console.log(`[Duplicate Titles] Video ${index}: "${originalTitle}" → "${processedVideo.displayTitle}"`);
+            } else {
+                // Duplicate but no duration available - keep original (will use fallback -1, -2 etc.)
+                console.log(`[Duplicate Titles] Video ${index}: "${originalTitle}" (no duration available)`);
+                processedVideo.downloadFilename = `${sanitizeFilename(originalTitle)}.mp4`;
+            }
+        } else {
+            // Unique title - no changes needed
+            processedVideo.downloadFilename = `${sanitizeFilename(originalTitle)}.mp4`;
+        }
+        
+        return processedVideo;
+    });
+    
+    const modifiedCount = processedVideos.filter(v => v.displayTitle !== v.originalTitle).length;
+    console.log('[Duplicate Titles] ✅ Processing complete:', modifiedCount, 'video(s) modified\n');
+    
+    return processedVideos;
+}
+
+// =============================================================================
 // EXPRESS APP INITIALIZATION - Must be BEFORE routes!
 // =============================================================================
 
@@ -1015,8 +1155,11 @@ function fetchChannelInfo(channelId, channelUrl) {
                     
                     console.log(`[fetchChannelInfo] Parsed ${videos.length} videos`);
                     
+                    // ⭐ NEW: Process duplicate titles - append duration to duplicates
+                    const processedVideos = processDuplicateTitles(videos);
+                    
                     resolve({
-                        videos: videos,
+                        videos: processedVideos,  // Return processed videos with displayTitle/downloadFilename
                         liveVideos: liveVideos
                     });
                     
@@ -1163,10 +1306,23 @@ app.post('/api/download', async (req, res) => {
         console.log('[Download] Output directory:', outputDir);
 
         const downloadId = uuidv4();
-        let safeFilename = (filename || `video_${downloadId}`).replace(/[^a-zA-Z0-9._-]/g, '_');
+        
+        // ⭐ NEW: Use downloadFilename if provided (from duplicate title processing), otherwise generate from title
+        let safeFilename;
+        if (filename && filename.includes('(')) {
+            // Filename already has duration format from duplicate title handler
+            safeFilename = filename.replace(/[^a-zA-Z0-9._\-() ]/g, '_');
+        } else if (filename) {
+            safeFilename = filename.replace(/[^a-zA-Z0-9._-]/g, '_');
+        } else if (title) {
+            safeFilename = title.replace(/[^a-zA-Z0-9._-]/g, '_');
+        } else {
+            safeFilename = `video_${downloadId}`;
+        }
+        
         let outputFilename = safeFilename.endsWith('.mp4') ? safeFilename : `${safeFilename}.mp4`;
         
-        // ⭐ MODIFICATION 3: Apply duplicate filename handler
+        // ⭐ MODIFICATION 3: Apply duplicate filename handler (for edge cases)
         outputFilename = getUniqueFilename(outputDir, outputFilename);
         
         const outputPath = path.join(outputDir, outputFilename);
