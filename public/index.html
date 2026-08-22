@@ -481,6 +481,246 @@
             }
         }
 
+        /* ==================== SYNC STATUS STYLES ==================== */
+        
+        /* Sync button */
+        .btn-sync {
+            background: linear-gradient(135deg, #00b09b 0%, #96c93d 100%);
+            color: white;
+            padding: 6px 14px;
+            border: none;
+            border-radius: 6px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s;
+            font-size: 12px;
+            display: flex;
+            align-items: center;
+            gap: 5px;
+        }
+
+        .btn-sync:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 4px 12px rgba(0, 176, 155, 0.4);
+        }
+
+        .btn-sync:disabled {
+            opacity: 0.6;
+            cursor: not-allowed;
+            transform: none;
+        }
+
+        .btn-sync .sync-spinner {
+            width: 14px;
+            height: 14px;
+            border: 2px solid rgba(255,255,255,0.3);
+            border-top-color: white;
+            border-radius: 50%;
+            animation: spin 0.8s linear infinite;
+        }
+
+        /* Sync statistics bar - FILTER BUTTONS */
+        .sync-stats-bar {
+            display: flex;
+            gap: 10px;
+            padding: 12px 15px;
+            background: linear-gradient(135deg, #f5f7fa 0%, #e4e8eb 100%);
+            border-radius: 8px;
+            margin-bottom: 12px;
+            flex-wrap: wrap;
+            align-items: center;
+            font-size: 13px;
+            border: 2px solid #ddd;
+        }
+
+        .sync-filter-btn {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            padding: 10px 18px;
+            border: 2px solid transparent;
+            border-radius: 8px;
+            font-weight: 700;
+            font-size: 13px;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            background: white;
+            box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+            position: relative;
+            overflow: hidden;
+        }
+
+        .sync-filter-btn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+        }
+
+        .sync-filter-btn.active {
+            transform: scale(1.05);
+            box-shadow: 0 4px 15px rgba(0,0,0,0.2);
+        }
+
+        /* All Button - Blue/Purple */
+        .sync-filter-btn.btn-all {
+            color: #1565c0;
+            border-color: #1565c0;
+        }
+        .sync-filter-btn.btn-all:hover, .sync-filter-btn.btn-all.active {
+            background: linear-gradient(135deg, #1565c0 0%, #1976d2 100%);
+            color: white;
+        }
+
+        /* Downloaded Button - Green */
+        .sync-filter-btn.btn-downloaded {
+            color: #2e7d32;
+            border-color: #2e7d32;
+        }
+        .sync-filter-btn.btn-downloaded:hover, .sync-filter-btn.btn-downloaded.active {
+            background: linear-gradient(135deg, #2e7d32 0%, #388e3c 100%);
+            color: white;
+        }
+
+        /* Remaining Button - Red */
+        .sync-filter-btn.btn-remaining {
+            color: #c62828;
+            border-color: #c62828;
+        }
+        .sync-filter-btn.btn-remaining:hover, .sync-filter-btn.btn-remaining.active {
+            background: linear-gradient(135deg, #c62828 0%, #d32f2f 100%);
+            color: white;
+        }
+
+        /* Percentage Badge */
+        .sync-stat-percentage {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            padding: 10px 15px;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            border-radius: 8px;
+            font-weight: 700;
+            font-size: 14px;
+            box-shadow: 0 3px 10px rgba(102, 126, 234, 0.4);
+            margin-left: auto;
+        }
+
+        /* Auto-refresh timer */
+        .sync-timer {
+            margin-left: auto;
+            font-size: 11px;
+            color: #666;
+            display: flex;
+            align-items: center;
+            gap: 5px;
+        }
+
+        .sync-timer-icon {
+            animation: pulse 2s infinite;
+        }
+
+        /* Sync progress bar for each video */
+        .sync-progress-container {
+            grid-column: 1 / -1;
+            margin-top: 6px;
+            padding: 6px 10px;
+            background: #fafafa;
+            border-radius: 6px;
+            border: 1px solid #eee;
+        }
+
+        .sync-progress-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 5px;
+            font-size: 11px;
+        }
+
+        .sync-progress-label {
+            color: #666;
+            font-weight: 500;
+        }
+
+        .sync-progress-status {
+            font-weight: 700;
+            padding: 2px 8px;
+            border-radius: 10px;
+            font-size: 10px;
+        }
+
+        .sync-status-downloaded {
+            background: linear-gradient(135deg, #388e3c 0%, #4caf50 100%);
+            color: white;
+        }
+
+        .sync-status-new {
+            background: linear-gradient(135deg, #d32f2f 0%, #f44336 100%);
+            color: white;
+        }
+
+        .sync-progress-bar {
+            height: 8px;
+            background: #ffebee;
+            border-radius: 4px;
+            overflow: hidden;
+        }
+
+        .sync-progress-fill {
+            height: 100%;
+            background: linear-gradient(90deg, #388e3c 0%, #4caf50 50%, #66bb6a 100%);
+            border-radius: 4px;
+            transition: width 0.5s ease-out;
+            position: relative;
+        }
+
+        .sync-progress-fill.downloaded {
+            width: 100% !important;
+        }
+
+        .sync-progress-fill.new {
+            width: 0% !important;
+            background: #ffcdd2;
+        }
+
+        .video-item.sync-downloaded {
+            border-left: 3px solid #4caf50;
+            background: linear-gradient(to right, #e8f5e9 0%, #ffffff 30%);
+        }
+
+        .video-item.sync-new {
+            border-left: 3px solid #f44336;
+            background: linear-gradient(to right, #ffebee 0%, #ffffff 30%);
+        }
+
+        /* Section headers for downloaded/new groups */
+        .sync-section-header {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            padding: 8px 12px;
+            background: linear-gradient(135deg, #f5f5f5 0%, #e0e0e0 100%);
+            border-radius: 6px;
+            margin: 10px 0 8px 0;
+            font-size: 12px;
+            font-weight: 700;
+            color: #555;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+
+        .sync-section-header.downloaded-section {
+            background: linear-gradient(135deg, #e8f5e9 0%, #c8e6c9 100%);
+            color: #2e7d32;
+            border: 1px solid #a5d6a7;
+        }
+
+        .sync-section-header.new-section {
+            background: linear-gradient(135deg, #ffebee 0%, #ffcdd2 100%);
+            color: #c62828;
+            border: 1px solid #ef9a9a;
+        }
+
         /* Action Buttons */
         .video-actions {
             display: flex;
@@ -1104,9 +1344,35 @@
                 <div class="card" id="videosCard" style="display: none;">
                     <div class="card-header">
                         <h2 class="card-title">🎥 Videos</h2>
-                        <div class="stats" id="channelStats">
-                            <span class="stat-badge stat-total">Total: 0</span>
+                        <div style="display: flex; gap: 10px; align-items: center; flex-wrap: wrap;">
+                            <button class="btn-sync" id="syncBtn" onclick="syncDownloadStatus()">
+                                <span id="syncBtnIcon">🔄</span>
+                                <span id="syncBtnText">Sync Status</span>
+                            </button>
+                            <div class="stats" id="channelStats">
+                                <span class="stat-badge stat-total">Total: 0</span>
+                            </div>
                         </div>
+                    </div>
+
+                    <!-- Sync Statistics Filter Buttons (hidden until first sync) -->
+                    <div class="sync-stats-bar" id="syncStatsBar" style="display: none;">
+                        <button class="sync-filter-btn btn-all active" onclick="setSyncFilter('all')" id="btnFilterAll">
+                            📊 All: <span id="syncTotal">0</span>
+                        </button>
+                        <button class="sync-filter-btn btn-downloaded" onclick="setSyncFilter('downloaded')" id="btnFilterDownloaded">
+                            ✅ Downloaded: <span id="syncDownloaded">0</span>
+                        </button>
+                        <button class="sync-filter-btn btn-remaining" onclick="setSyncFilter('remaining')" id="btnFilterRemaining">
+                            🔴 Remaining: <span id="syncRemaining">0</span>
+                        </button>
+                        <div class="sync-stat-percentage">
+                            📈 <span id="syncPercentage">0</span>%
+                        </div>
+                        <span class="sync-timer" id="syncTimer" style="display: none;">
+                            <span class="sync-timer-icon">⏱️</span>
+                            Next refresh: <span id="syncCountdown">10:00</span>
+                        </span>
                     </div>
 
                     <div class="video-list" id="videoList">
@@ -1512,6 +1778,35 @@
 
         // ==================== VIDEO RENDERING ====================
         
+        // Store sync data globally
+        let syncData = null;
+        let syncTimerInterval = null;
+        const SYNC_INTERVAL = 10 * 60 * 1000; // 10 minutes in milliseconds
+        
+        // Current filter state: 'all', 'downloaded', or 'remaining'
+        let currentSyncFilter = 'all';
+        
+        // Set sync filter and re-render videos
+        function setSyncFilter(filter) {
+            currentSyncFilter = filter;
+            
+            // Update button active states
+            document.querySelectorAll('.sync-filter-btn').forEach(btn => {
+                btn.classList.remove('active');
+            });
+            
+            if (filter === 'all') {
+                document.getElementById('btnFilterAll').classList.add('active');
+            } else if (filter === 'downloaded') {
+                document.getElementById('btnFilterDownloaded').classList.add('active');
+            } else if (filter === 'remaining') {
+                document.getElementById('btnFilterRemaining').classList.add('active');
+            }
+            
+            // Re-render videos with new filter
+            renderVideos();
+        }
+        
         function renderVideos() {
             const container = document.getElementById('videoList');
             
@@ -1520,12 +1815,88 @@
                 return;
             }
 
-            container.innerHTML = videos.map((video, index) => {
-                // Determine status class (simplified - no more badge-based status)
+            // Sort videos: downloaded first, then new/undownloaded (if sync data exists)
+            let sortedVideos = [...videos];
+            let videoSyncStatus = {};
+            
+            if (syncData && syncData.videos) {
+                // Create a map of video ID to sync status
+                syncData.videos.forEach(sv => {
+                    videoSyncStatus[sv.id || sv.title] = sv;
+                });
+                
+                // Attach sync status to each video
+                sortedVideos.forEach(video => {
+                    const syncInfo = videoSyncStatus[video.id || video.videoId] || 
+                                     Object.values(videoSyncStatus).find(sv => 
+                                         sv.title === video.title || sv.displayTitle === video.displayTitle
+                                     );
+                    video._syncStatus = syncInfo || { isDownloaded: false };
+                });
+                
+                // Sort: downloaded first, then by title
+                sortedVideos.sort((a, b) => {
+                    const aDownloaded = a._syncStatus && a._syncStatus.isDownloaded ? 1 : 0;
+                    const bDownloaded = b._syncStatus && b._syncStatus.isDownloaded ? 1 : 0;
+                    if (bDownloaded !== aDownloaded) return bDownloaded - aDownloaded;
+                    return (a.displayTitle || a.title).localeCompare(b.displayTitle || b.title);
+                });
+                
+                // APPLY FILTER based on currentSyncFilter
+                if (currentSyncFilter === 'downloaded') {
+                    sortedVideos = sortedVideos.filter(v => v._syncStatus && v._syncStatus.isDownloaded);
+                } else if (currentSyncFilter === 'remaining') {
+                    sortedVideos = sortedVideos.filter(v => !v._syncStatus || !v._syncStatus.isDownloaded);
+                }
+                // 'all' shows everything - no filter needed
+            }
+
+            // Show filtered count message if filter is active and sync data exists
+            let html = '';
+            if (syncData && currentSyncFilter !== 'all') {
+                const filterLabel = currentSyncFilter === 'downloaded' ? '✅ Downloaded Files' : '🔴 Remaining Files';
+                html += `<div class="sync-section-header ${currentSyncFilter === 'downloaded' ? 'downloaded-section' : 'new-section'}" style="margin-bottom: 10px;">
+                    ${filterLabel} - Showing ${sortedVideos.length} of ${videos.length} videos
+                    <button onclick="setSyncFilter('all')" style="margin-left: 15px; padding: 4px 12px; font-size: 11px; background: #667eea; color: white; border: none; border-radius: 5px; cursor: pointer;">Show All</button>
+                </div>`;
+            }
+            
+            if (sortedVideos.length === 0) {
+                const filterName = currentSyncFilter === 'downloaded' ? 'downloaded' : 'remaining';
+                container.innerHTML = `<div style="text-align: center; color: #666; padding: 40px;">
+                    <div style="font-size: 3em; margin-bottom: 10px;">${currentSyncFilter === 'downloaded' ? '✅' : '🔴'}</div>
+                    <div style="font-size: 16px; font-weight: 600;">No ${filterName} files found</div>
+                    <button onclick="setSyncFilter('all')" style="margin-top: 15px; padding: 8px 20px; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; border: none; border-radius: 8px; cursor: pointer; font-weight: 600;">Show All Videos</button>
+                </div>`;
+                return;
+            }
+            
+            let lastSyncStatus = null;
+            
+            sortedVideos.forEach((video, displayIndex) => {
+                const originalIndex = videos.indexOf(video);
+                const isSynced = syncData && video._syncStatus;
+                const isDownloaded = isSynced && video._syncStatus.isDownloaded;
+                const currentSyncStatus = isDownloaded ? 'downloaded' : (isSynced ? 'new' : null);
+                
+                // Add section header when status changes
+                if (isSynced && currentSyncStatus !== lastSyncStatus) {
+                    if (currentSyncStatus === 'downloaded') {
+                        html += `<div class="sync-section-header downloaded-section">✅ Downloaded Files (${sortedVideos.filter(v => v._syncStatus && v._syncStatus.isDownloaded).length})</div>`;
+                    } else if (currentSyncStatus === 'new') {
+                        html += `<div class="sync-section-header new-section">🔴 New / Not Downloaded (${sortedVideos.filter(v => v._syncStatus && !v._syncStatus.isDownloaded).length})</div>`;
+                    }
+                    lastSyncStatus = currentSyncStatus;
+                }
+                
+                // Determine status class
                 const statusClass = video.downloadStatus === 'downloading' ? 'downloading' :
                                    video.downloadStatus === 'completed' ? 'completed' :
                                    video.downloadStatus === 'skipped' ? 'skipped' :
                                    video.downloadStatus === 'error' ? 'error' : '';
+                
+                // Sync status class
+                const syncClass = isDownloaded ? 'sync-downloaded' : (isSynced ? 'sync-new' : '');
                 
                 // Generate file info HTML for downloaded videos
                 const fileInfoHtml = (video.downloadStatus === 'completed' || video.downloadStatus === 'downloaded') && video.fileSize ? `
@@ -1538,12 +1909,33 @@
                     </div>
                 ` : '';
                 
-                return `
-                <div class="video-item ${statusClass}" data-index="${index}" id="video-${index}">
+                // Sync progress bar HTML
+                const syncProgressWidth = isDownloaded ? '100' : '0';
+                const syncProgressHtml = isSynced ? `
+                    <div class="sync-progress-container">
+                        <div class="sync-progress-header">
+                            <span class="sync-progress-label">📁 ${isDownloaded ? video._syncStatus.fileInfo?.fileName || video._syncStatus.expectedFilename : 'Not downloaded'}</span>
+                            <span class="sync-progress-status ${isDownloaded ? 'sync-status-downloaded' : 'sync-status-new'}">
+                                ${isDownloaded ? '✅ 100%' : '🔴 0%'}
+                            </span>
+                        </div>
+                        <div class="sync-progress-bar">
+                            <div class="sync-progress-fill ${isDownloaded ? 'downloaded' : 'new'}" style="width: ${syncProgressWidth}%"></div>
+                        </div>
+                        ${isDownloaded && video._syncStatus.fileInfo ? `
+                            <div style="margin-top: 4px; font-size: 10px; color: #2e7d32;">
+                                📦 ${(video._syncStatus.fileInfo.fileSizeMB || '0')} MB | 📅 ${new Date(video._syncStatus.fileInfo.downloadedAt).toLocaleDateString()}
+                            </div>
+                        ` : ''}
+                    </div>
+                ` : '';
+                
+                html += `
+                <div class="video-item ${statusClass} ${syncClass}" data-index="${originalIndex}" id="video-${originalIndex}">
                     <input type="checkbox" 
                            class="video-checkbox" 
-                           ${selectedVideos.has(index) ? 'checked' : ''}
-                           onchange="toggleVideo(${index})">
+                           ${selectedVideos.has(originalIndex) ? 'checked' : ''}
+                           onchange="toggleVideo(${originalIndex})">
                     
                     <div class="video-info">
                         <div class="video-title">${escapeHtml(video.displayTitle || video.title)}</div>
@@ -1555,7 +1947,7 @@
                         ${fileInfoHtml}
                         
                         <!-- Filename display -->
-                        <div id="filename-${index}" style="${video.finalFilename ? '' : 'display:none'}" class="renamed-filename">
+                        <div id="filename-${originalIndex}" style="${video.finalFilename ? '' : 'display:none'}" class="renamed-filename">
                             📄 ${escapeHtml(video.finalFilename || '')}
                         </div>
                     </div>
@@ -1577,39 +1969,44 @@
                             </button>
                             <span style="color: #f57c00; font-size: 0.8em;">⏭️ Exists</span>
                         ` : video.downloadStatus === 'error' ? `
-                            <button class="btn-danger btn-small" onclick="downloadVideo(${index})">
+                            <button class="btn-danger btn-small" onclick="downloadVideo(${originalIndex})">
                                 🔄 Retry
                             </button>
                         ` : `
-                            <button class="btn-primary btn-small" onclick="downloadVideo(${index})">
+                            <button class="btn-primary btn-small" onclick="downloadVideo(${originalIndex})">
                                 ⬇️ Download
                             </button>
                         `}
                     </div>
 
+                    <!-- Sync Progress Bar -->
+                    ${syncProgressHtml}
+
                     <!-- Progress Bar with Live Updates -->
-                    <div class="progress-container" id="progress-container-${index}" style="${(video.downloadStatus === 'downloading' || video.downloadStatus === 'completed') && video.progress > 0 ? '' : 'display:none'}">
+                    <div class="progress-container" id="progress-container-${originalIndex}" style="${(video.downloadStatus === 'downloading' || video.downloadStatus === 'completed') && video.progress > 0 ? '' : 'display:none'}">
                         <div class="progress-bar">
                             <div class="progress-fill ${video.progress >= 100 ? 'complete' : 'active'}" 
-                                 id="progress-fill-${index}"
+                                 id="progress-fill-${originalIndex}"
                                  style="width: ${Math.min(video.progress || 0, 100)}%">
                             </div>
                         </div>
                         <div class="progress-details">
-                            <span class="progress-percent" id="progress-percent-${index}">
+                            <span class="progress-percent" id="progress-percent-${originalIndex}">
                                 ${video.progress >= 100 ? '✅ Complete!' : `${Math.round(video.progress || 0)}%`}
                             </span>
-                            <span class="progress-speed" id="progress-speed-${index}">
+                            <span class="progress-speed" id="progress-speed-${originalIndex}">
                                 ${video.speed ? `🚀 ${video.speed}` : ''}
                             </span>
-                            <span class="progress-size" id="progress-size-${index}">
+                            <span class="progress-size" id="progress-size-${originalIndex}">
                                 ${video.total ? `📦 ${video.total}` : ''}
                             </span>
                         </div>
                     </div>
                 </div>
             `;
-            }).join('');
+            });
+            
+            container.innerHTML = html;
             
             // Check for active downloads and start live sync
             if (videos.some(v => v.downloadStatus === 'downloading')) {
@@ -1643,6 +2040,109 @@
             const count = selectedVideos.size;
             document.getElementById('selectedCount').textContent = `${count} selected`;
             document.getElementById('downloadSelectedBtn').disabled = count === 0;
+        }
+
+        // ==================== SYNC STATUS FUNCTIONS ====================
+        
+        async function syncDownloadStatus() {
+            if (!currentChannel || !currentChannel.id) {
+                showAlert('⚠️ Please load a channel first', 'warning', 3000);
+                return;
+            }
+            
+            const btn = document.getElementById('syncBtn');
+            const btnIcon = document.getElementById('syncBtnIcon');
+            const btnText = document.getElementById('syncBtnText');
+            
+            try {
+                // Show loading state
+                btn.disabled = true;
+                btnIcon.innerHTML = '<span class="sync-spinner"></span>';
+                btnText.textContent = 'Syncing...';
+                
+                addLogEntry('🔄 Checking download status...', 'info');
+                
+                // Call the sync API
+                const response = await fetch(`${API_BASE}/api/channels/${currentChannel.id}/sync-status`);
+                const result = await response.json();
+                
+                if (!result.success) {
+                    throw new Error(result.error || 'Sync failed');
+                }
+                
+                // Store sync data globally
+                syncData = result;
+                
+                // Update stats display
+                document.getElementById('syncStatsBar').style.display = 'flex';
+                document.getElementById('syncTotal').textContent = result.statistics.total;
+                document.getElementById('syncDownloaded').textContent = result.statistics.downloaded;
+                document.getElementById('syncRemaining').textContent = result.statistics.remaining;
+                document.getElementById('syncPercentage').textContent = result.statistics.percentage;
+                
+                // Re-render videos with sync status
+                renderVideos();
+                
+                // Show success message
+                showAlert(`✅ Sync complete: ${result.statistics.downloaded}/${result.statistics.total} files found`, 'success', 4000);
+                addLogEntry(`✅ Sync complete: ${result.statistics.downloaded} downloaded, ${result.statistics.remaining} remaining`, 'success');
+                
+                // Start auto-refresh timer
+                startSyncTimer();
+                
+            } catch (error) {
+                console.error('[Sync] Error:', error);
+                showAlert(`❌ Sync failed: ${error.message}`, 'error', 5000);
+                addLogEntry(`❌ Sync failed: ${error.message}`, 'error');
+            } finally {
+                // Reset button state
+                btn.disabled = false;
+                btnIcon.textContent = '🔄';
+                btnText.textContent = 'Sync Status';
+            }
+        }
+        
+        function startSyncTimer() {
+            // Clear existing timer
+            if (syncTimerInterval) {
+                clearInterval(syncTimerInterval);
+            }
+            
+            let remainingSeconds = 10 * 60; // 10 minutes
+            
+            // Show timer
+            document.getElementById('syncTimer').style.display = 'flex';
+            updateSyncCountdown(remainingSeconds);
+            
+            // Update countdown every second
+            syncTimerInterval = setInterval(() => {
+                remainingSeconds--;
+                
+                if (remainingSeconds <= 0) {
+                    // Time's up - auto refresh
+                    clearInterval(syncTimerInterval);
+                    syncTimerInterval = null;
+                    addLogEntry('⏱️ Auto-sync triggered...', 'info');
+                    syncDownloadStatus();
+                } else {
+                    updateSyncCountdown(remainingSeconds);
+                }
+            }, 1000);
+        }
+        
+        function updateSyncCountdown(seconds) {
+            const minutes = Math.floor(seconds / 60);
+            const secs = seconds % 60;
+            document.getElementById('syncCountdown').textContent = 
+                `${minutes}:${secs.toString().padStart(2, '0')}`;
+        }
+        
+        function stopSyncTimer() {
+            if (syncTimerInterval) {
+                clearInterval(syncTimerInterval);
+                syncTimerInterval = null;
+            }
+            document.getElementById('syncTimer').style.display = 'none';
         }
 
         // ==================== DOWNLOAD FUNCTIONS ====================
