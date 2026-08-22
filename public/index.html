@@ -1820,19 +1820,63 @@
             let videoSyncStatus = {};
             
             if (syncData && syncData.videos) {
+                // ==================== DEBUG LOGGING ====================
+                console.log('🔍 [FILTER-DEBUG] renderVideos() called');
+                console.log('🔍 [FILTER-DEBUG] currentSyncFilter:', currentSyncFilter);
+                console.log('🔍 [FILTER-DEBUG] Total videos:', videos.length);
+                console.log('🔍 [FILTER-DEBUG] syncData.videos length:', syncData.videos.length);
+                
                 // Create a map of video ID to sync status
-                syncData.videos.forEach(sv => {
+                syncData.videos.forEach((sv, idx) => {
                     videoSyncStatus[sv.id || sv.title] = sv;
+                    if (idx < 3) {  // Log first 3 for debugging
+                        console.log(`🔍 [FILTER-DEBUG] syncData.videos[${idx}]:`, {
+                            id: sv.id,
+                            title: sv.title,
+                            displayTitle: sv.displayTitle,
+                            isDownloaded: sv.isDownloaded
+                        });
+                    }
                 });
                 
+                console.log('🔍 [FILTER-DEBUG] videoSyncStatus keys (first 5):', Object.keys(videoSyncStatus).slice(0, 5));
+                
                 // Attach sync status to each video
-                sortedVideos.forEach(video => {
-                    const syncInfo = videoSyncStatus[video.id || video.videoId] || 
-                                     Object.values(videoSyncStatus).find(sv => 
-                                         sv.title === video.title || sv.displayTitle === video.displayTitle
-                                     );
-                    video._syncStatus = syncInfo || { isDownloaded: false };
+                let matchCount = 0;
+                let downloadedCount = 0;
+                
+                sortedVideos.forEach((video, idx) => {
+                    // FIX: Match by displayTitle directly (most reliable)
+                    const syncInfo = syncData.videos.find(sv => 
+                        sv.displayTitle === video.displayTitle || sv.id === video.id
+                    );
+                    
+                    if (syncInfo) matchCount++;
+                    
+                    // Use the syncInfo directly, don't create fallback unless needed
+                    if (syncInfo) {
+                        video._syncStatus = syncInfo;
+                        if (syncInfo.isDownloaded) downloadedCount++;
+                    } else {
+                        video._syncStatus = { isDownloaded: false };
+                    }
+                    
+                    // Log first few videos AND any downloaded ones for debugging
+                    if (idx < 3 || (syncInfo && syncInfo.isDownloaded)) {
+                        console.log(`🔍 [FILTER-DEBUG] videos[${idx}]:`, {
+                            id: video.id,
+                            displayTitle: video.displayTitle,
+                            foundSyncInfo: !!syncInfo,
+                            isDownloaded: syncInfo ? syncInfo.isDownloaded : 'N/A',
+                            fullSyncStatus: video._syncStatus
+                        });
+                    }
                 });
+                
+                console.log('🔍 [FILTER-DEBUG] Matching results:');
+                console.log('   - Videos with _syncStatus:', matchCount, '/', sortedVideos.length);
+                console.log('   - Videos marked as downloaded:', downloadedCount);
+                // ==================== END DEBUG ====================
                 
                 // Sort: downloaded first, then by title
                 sortedVideos.sort((a, b) => {
@@ -1843,12 +1887,22 @@
                 });
                 
                 // APPLY FILTER based on currentSyncFilter
+                const beforeFilter = sortedVideos.length;
+                
                 if (currentSyncFilter === 'downloaded') {
                     sortedVideos = sortedVideos.filter(v => v._syncStatus && v._syncStatus.isDownloaded);
+                    console.log('🔍 [FILTER-DEBUG] Filter applied: DOWNLOADED');
                 } else if (currentSyncFilter === 'remaining') {
                     sortedVideos = sortedVideos.filter(v => !v._syncStatus || !v._syncStatus.isDownloaded);
+                    console.log('🔍 [FILTER-DEBUG] Filter applied: REMAINING');
+                } else {
+                    console.log('🔍 [FILTER-DEBUG] No filter applied (ALL)');
                 }
+                
+                console.log('🔍 [FILTER-DEBUG] Videos after filter:', sortedVideos.length, '(was', beforeFilter, ')');
                 // 'all' shows everything - no filter needed
+            } else {
+                console.log('⚠️ [FILTER-DEBUG] No syncData or syncData.videos!');
             }
 
             // Show filtered count message if filter is active and sync data exists
