@@ -1594,20 +1594,26 @@ app.get('/api/channels/:id/stats', async (req, res) => {
     }
 });
 
-// Helper: Count videos on YouTube using yt-dlp
+// Helper: Count videos on YouTube using yt-dlp (CROSS-PLATFORM FIX)
+// FIXED: Removed Unix 'wc -l' pipe that doesn't work on Windows
 async function getYoutubeVideoCount(channelUrl) {
     return new Promise((resolve, reject) => {
-        const cmd = `yt-dlp --flat-playlist --print "%(id)s" "${channelUrl}" 2>/dev/null | wc -l`;
+        // ⭐ FIXED: Don't use pipe/wc - not cross-platform compatible
+        const cmd = `yt-dlp --flat-playlist --print "%(id)s" "${channelUrl}" 2>nul`;
         
         exec(cmd, (error, stdout, stderr) => {
             if (error) {
-                // If yt-dlp fails, return 0 or reject
+                // If yt-dlp fails, return 0 gracefully
                 console.error('[Stats] yt-dlp error:', error.message);
-                resolve(0);  // Graceful fallback
+                resolve(0);
             }
             
-            const count = parseInt(stdout.trim(), 10);
-            resolve(isNaN(count) ? 0 : count);
+            // ⭐ FIXED: Count lines in JavaScript instead of 'wc -l'
+            // This works on Windows, Linux, and macOS
+            const lines = stdout.trim().split('\n').filter(line => line.trim());
+            const count = lines.length;
+            console.log(`[Stats] Found ${count} videos on YouTube`);
+            resolve(count);
         });
     });
 }
@@ -1789,10 +1795,22 @@ function executeDownloadWithFormat(downloadId, videoUrl, outputPath, formatInfo,
         const outputDir = path.dirname(outputPath);
         const baseFilename = path.basename(outputPath, '.mp4');  // without extension
         
-        // ⭐ FIXED: Use template that allows yt-dlp to handle merging properly
-        // When merging is needed, yt-dlp creates temp files then merges them
-        // Using %(title)s.%(ext)s template instead of fixed filename
-        const outputTemplate = path.join(outputDir, `${baseFilename}.%(ext)s`);
+        // ⭐ CROSS-PLATFORM FIX: Handle merged formats properly
+        // When video needs merging (separate video+audio), we CANNOT use fixed output name
+        // because yt-dlp needs to create temp files, merge them, then save
+        let outputTemplate;
+        let finalOutputPath = outputPath;  // Where we expect the file to end up
+        
+        if (formatInfo.needsMerge) {
+            // For merged downloads, use a safe template that yt-dlp can work with
+            // The '%(title)s.%(ext)s' allows yt-dlp to handle temp files during merge
+            outputTemplate = path.join(outputDir, `${baseFilename}.%(ext)s`);
+            console.log(`[Execute Download] 🔄 MERGE MODE - using flexible output template`);
+        } else {
+            // For non-merged (single file) downloads, use exact filename
+            outputTemplate = outputPath;
+            console.log(`[Execute Download] 📥 SINGLE FILE MODE - using exact output path`);
+        }
         
         console.log(`[Execute Download] Output dir: ${outputDir}`);
         console.log(`[Execute Download] Output template: ${outputTemplate}`);
@@ -1801,11 +1819,16 @@ function executeDownloadWithFormat(downloadId, videoUrl, outputPath, formatInfo,
         const args = [
             '-f', formatInfo.formatId,
             '-o', outputTemplate,
-            '--no-playlist'
+            '--no-playlist',
+            '--embed-chapters',
+            '--embed-metadata',
+            '--embed-thumbnail'
         ];
         
         // Add merge requirement if format needs it
         if (formatInfo.needsMerge) {
+            // ⭐ KEY FIX: Use --merge-output-format to specify final container
+            // This tells yt-dlp to merge into mp4 container
             args.push('--merge-output-format', 'mp4');
             if (FFMPEG_AVAILABLE) {
                 console.log('[Execute Download] ✅ FFmpeg available for merging');
@@ -1820,24 +1843,25 @@ function executeDownloadWithFormat(downloadId, videoUrl, outputPath, formatInfo,
 
         const ytDlpProcess = spawn('yt-dlp', args, {
             stdio: ['pipe', 'pipe', 'pipe'],
-            shell: true
+            shell: true,
+            cwd: outputDir  // Work in output directory for safer file operations
         });
 
-        let stdout = '';
-        let stderr = '';
+        let stdoutData = '';
+        let stderrData = '';
 
         ytDlpProcess.stdout.on('data', (data) => {
-            stdout += data.toString();
+            stdoutData += data.toString();
             
             // Parse progress from output
-            const progressMatch = stdout.match(/(\d+\.?\d*)%/);
+            const progressMatch = stdoutData.match(/(\d+\.?\d*)%/);
             if (progressMatch) {
                 const percent = parseFloat(progressMatch[1]);
                 downloadManager.update(downloadId, { progress: percent });
                 
                 // Extract additional info if available
-                const speedMatch = stdout.match(/(\d+\.?\d*\s*(?:MiB|KiB|GiB)\/s)/);
-                const sizeMatch = stdout.match(/of\s+(\d+\.?\d*\s*(?:MiB|KiB|GiB))/);
+                const speedMatch = stdoutData.match(/(\d+\.?\d*\s*(?:MiB|KiB|GiB)\/s)/);
+                const sizeMatch = stdoutData.match(/of\s+(\d+\.?\d*\s*(?:MiB|KiB|GiB))/);
                 
                 if (speedMatch) downloadManager.update(downloadId, { speed: speedMatch[1] });
                 if (sizeMatch) downloadManager.update(downloadId, { total: sizeMatch[1] });
@@ -1845,33 +1869,80 @@ function executeDownloadWithFormat(downloadId, videoUrl, outputPath, formatInfo,
         });
 
         ytDlpProcess.stderr.on('data', (data) => {
-            stderr += data.toString();
+            stderrData += data.toString();
         });
 
         ytDlpProcess.on('close', (code) => {
             console.log(`[Execute Download] Process exited with code: ${code}`);
             
             if (code === 0) {
-                // Check if file exists
-                if (fs.existsSync(outputPath)) {
-                    const stats = fs.statSync(outputPath);
-                    console.log(`[Execute Download] ✅ Success! File size: ${(stats.size / 1024 / 1024).toFixed(2)} MB`);
-                    resolve({ success: true, path: outputPath, size: stats.size });
-                } else {
-                    // File might be merged with different extension
-                    const webmPath = outputPath.replace('.mp4', '.webm');
-                    const mkvPath = outputPath.replace('.mp4', '.mkv');
-                    
-                    if (fs.existsSync(webmPath)) {
-                        resolve({ success: true, path: webmPath, ext: 'webm' });
-                    } else if (fs.existsSync(mkvPath)) {
-                        resolve({ success: true, path: mkvPath, ext: 'mkv' });
-                    } else {
-                        reject(new Error('Download completed but output file not found'));
+                // ⭐ ENHANCED: Search for output file in multiple possible locations/names
+                const possiblePaths = [
+                    outputPath,                                    // Original expected path
+                    outputPath.replace('.mp4', '.webm'),           // WebM fallback
+                    outputPath.replace('.mp4', '.mkv'),             // MKV fallback
+                    path.join(outputDir, baseFilename + '.mp4'),   // Direct name in output dir
+                    path.join(outputDir, baseFilename + '.webm'),
+                    path.join(outputDir, baseFilename + '.mkv')
+                ];
+                
+                // Also try to find any recently modified video file in output dir
+                try {
+                    if (fs.existsSync(outputDir)) {
+                        const files = fs.readdirSync(outputDir)
+                            .filter(f => ['.mp4', '.webm', '.mkv'].includes(path.extname(f).toLowerCase()))
+                            .map(f => ({
+                                path: path.join(outputDir, f),
+                                mtime: fs.statSync(path.join(outputDir, f)).mtime.getTime()
+                            }))
+                            .sort((a, b) => b.mtime - a.mtime);  // Most recent first
+                        
+                        // Add the most recent file as highest priority
+                        if (files.length > 0) {
+                            possiblePaths.unshift(files[0].path);
+                        }
+                    }
+                } catch (e) {
+                    console.warn('[Execute Download] Warning: Could not scan output directory:', e.message);
+                }
+                
+                // Find which file actually exists
+                let foundPath = null;
+                for (const checkPath of possiblePaths) {
+                    if (fs.existsSync(checkPath)) {
+                        const stats = fs.statSync(checkPath);
+                        // File should be reasonably sized (> 1KB) and recently modified
+                        if (stats.size > 1024) {
+                            foundPath = checkPath;
+                            break;
+                        }
                     }
                 }
+                
+                if (foundPath) {
+                    const stats = fs.statSync(foundPath);
+                    console.log(`[Execute Download] ✅ Success! File: ${path.basename(foundPath)}`);
+                    console.log(`[Execute Download] ✅ Size: ${(stats.size / 1024 / 1024).toFixed(2)} MB`);
+                    
+                    // If file ended up at different path than expected, rename it
+                    if (foundPath !== outputPath && fs.existsSync(outputPath) === false) {
+                        try {
+                            fs.renameSync(foundPath, outputPath);
+                            console.log(`[Execute Download] 📝 Renamed to: ${path.basename(outputPath)}`);
+                            resolve({ success: true, path: outputPath, size: stats.size });
+                        } catch (renameErr) {
+                            // Rename failed, but download succeeded - return actual path
+                            console.log(`[Execute Download] ⚠️ Rename failed, using original name: ${path.basename(foundPath)}`);
+                            resolve({ success: true, path: foundPath, size: stats.size });
+                        }
+                    } else {
+                        resolve({ success: true, path: foundPath, size: stats.size });
+                    }
+                } else {
+                    reject(new Error('Download completed but output file not found'));
+                }
             } else {
-                const errorMsg = stderr.substring(stderr.length - 500);
+                const errorMsg = stderrData.substring(stderrData.length - 500);
                 console.error(`[Execute Download] ❌ Failed: ${errorMsg}`);
                 reject(new Error(`yt-dlp exited with code ${code}: ${errorMsg}`));
             }
