@@ -1151,15 +1151,16 @@
             border-radius: 8px;
             padding: 12px;
             margin-top: 12px;
-            max-height: 200px;
-            overflow-y: auto;
+            /* NO max-height or overflow here - let inner container handle scrolling */
             font-family: 'Courier New', Consolas, monospace;
             font-size: 11px;
         }
 
         .log-panel.collapsed {
-            max-height: 40px;
-            overflow: hidden;
+            /* Collapse by hiding inner content, not panel itself */
+        }
+        .log-panel.collapsed .log-scroll-area {
+            display: none;
         }
 
         .log-header {
@@ -1238,14 +1239,15 @@
             border-bottom: 1px solid #333;
         }
 
-        /* Log scroll area - Direct container (no wrapper needed) */
+        /* Log scroll area - THE ONLY scroll container (clean, no wrapper) */
         .log-scroll-area {
-            overflow-y: auto;
-            max-height: 250px;  /* Sweet spot - shows plenty of logs */
-            min-height: 80px;
+            overflow-y: auto;      /* SINGLE scroll point */
+            max-height: 250px;     /* Fixed height for consistent UI */
+            min-height: 100px;     /* Minimum visible area */
             background: #252526;
-            border-radius: 4px;
-            padding: 8px;
+            border-radius: 6px;
+            padding: 10px;
+            border: 1px solid #333;
         }
 
         /* LIVE INDICATOR */
