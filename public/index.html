@@ -743,95 +743,6 @@
             to { transform: rotate(360deg); }
         }
 
-        /* ==================== MODIFICATION 2: VIDEO COUNT STATS BANNER ==================== */
-        .stats-banner {
-            background: linear-gradient(135deg, #e8f5e9 0%, #c8e6c9 100%);
-            border: 2px solid #81c784;
-            border-radius: 10px;
-            padding: 14px 18px;
-            margin-bottom: 12px;
-            display: none;
-        }
-
-        .stats-banner.show {
-            display: block;
-        }
-
-        .stats-banner-header {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            margin-bottom: 12px;
-            flex-wrap: wrap;
-            gap: 10px;
-        }
-
-        .stats-banner-title {
-            font-size: 1em;
-            font-weight: 600;
-            color: #2e7d32;
-            display: flex;
-            align-items: center;
-            gap: 8px;
-        }
-
-        .stats-banner-content {
-            display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
-            gap: 12px;
-        }
-
-        .stat-item {
-            background: white;
-            padding: 12px;
-            border-radius: 8px;
-            text-align: center;
-            box-shadow: 0 2px 4px rgba(0,0,0,0.05);
-        }
-
-        .stat-item-value {
-            font-size: 1.8em;
-            font-weight: 700;
-            color: #333;
-        }
-
-        .stat-item-label {
-            font-size: 0.8em;
-            color: #666;
-            margin-top: 4px;
-        }
-
-        .stat-item.youtube .stat-item-value { color: #1976d2; }
-        .stat-item.downloaded .stat-item-value { color: #388e3c; }
-        .stat-item.missing .stat-item-value { color: #d32f2f; }
-
-        .progress-bar-container {
-            grid-column: 1 / -1;
-            margin-top: 8px;
-        }
-
-        .stats-progress-bar {
-            height: 12px;
-            background: #e0e0e0;
-            border-radius: 6px;
-            overflow: hidden;
-        }
-
-        .stats-progress-fill {
-            height: 100%;
-            background: linear-gradient(90deg, #388e3c 0%, #81c784 100%);
-            border-radius: 6px;
-            transition: width 0.5s ease-out;
-        }
-
-        .stats-progress-text {
-            text-align: center;
-            font-size: 0.85em;
-            color: #2e7d32;
-            font-weight: 600;
-            margin-top: 4px;
-        }
-
         /* ==================== DOWNLOAD LOG PANEL ==================== */
         .log-panel {
             background: #1e1e1e;
@@ -1189,36 +1100,6 @@
                     </div>
                 </div>
 
-                <!-- MODIFICATION 2: Video Count Stats Banner -->
-                <div id="statsBanner" class="stats-banner">
-                    <div class="stats-banner-header">
-                        <span class="stats-banner-title">📊 Video Count Comparison</span>
-                        <button class="btn-info btn-small" onclick="refreshStats()" id="refreshStatsBtn">
-                            🔄 Refresh Stats
-                        </button>
-                    </div>
-                    <div class="stats-banner-content" id="statsContent">
-                        <div class="stat-item youtube">
-                            <div class="stat-item-value" id="youtubeTotal">-</div>
-                            <div class="stat-item-label">YouTube Total</div>
-                        </div>
-                        <div class="stat-item downloaded">
-                            <div class="stat-item-value" id="downloadedCount">-</div>
-                            <div class="stat-item-label">Downloaded</div>
-                        </div>
-                        <div class="stat-item missing">
-                            <div class="stat-item-value" id="missingCount">-</div>
-                            <div class="stat-item-label">Missing</div>
-                        </div>
-                        <div class="progress-bar-container">
-                            <div class="stats-progress-bar">
-                                <div class="stats-progress-fill" id="statsProgressFill" style="width: 0%"></div>
-                            </div>
-                            <div class="stats-progress-text" id="statsProgressText">Progress: 0%</div>
-                        </div>
-                    </div>
-                </div>
-
                 <!-- Videos List -->
                 <div class="card" id="videosCard" style="display: none;">
                     <div class="card-header">
@@ -1569,56 +1450,6 @@
             }
         }
 
-        // ==================== MODIFICATION 2: VIDEO STATS FUNCTIONS ====================
-        
-        async function refreshStats() {
-            if (!currentChannel || !currentChannel.id) {
-                showAlert('No channel loaded', 'warning');
-                return;
-            }
-
-            const btn = document.getElementById('refreshStatsBtn');
-            if (btn) {
-                btn.disabled = true;
-                btn.innerHTML = '<span class="spinner"></span> Loading...';
-            }
-
-            try {
-                const response = await fetch(`${API_BASE}/api/channels/${currentChannel.id}/stats`);
-                const data = await response.json();
-
-                if (data.success) {
-                    updateStatsBanner(data.stats);
-                    addLogEntry(`📊 Stats updated: ${data.stats.youtubeTotal} total, ${data.stats.downloadedCount} downloaded`, 'info');
-                } else {
-                    showAlert('Failed to load stats: ' + (data.error || 'Unknown error'), 'error');
-                }
-            } catch (error) {
-                console.error('[Stats] Error:', error);
-                showAlert('Error loading stats: ' + error.message, 'error');
-            } finally {
-                if (btn) {
-                    btn.disabled = false;
-                    btn.innerHTML = '🔄 Refresh Stats';
-                }
-            }
-        }
-
-        function updateStatsBanner(stats) {
-            const banner = document.getElementById('statsBanner');
-            if (!banner) return;
-
-            banner.classList.add('show');
-
-            document.getElementById('youtubeTotal').textContent = stats.youtubeTotal || 0;
-            document.getElementById('downloadedCount').textContent = stats.downloadedCount || 0;
-            document.getElementById('missingCount').textContent = stats.missingCount || 0;
-            
-            const progressPercent = stats.progressPercent || 0;
-            document.getElementById('statsProgressFill').style.width = `${Math.min(progressPercent, 100)}%`;
-            document.getElementById('statsProgressText').textContent = `Progress: ${progressPercent}%`;
-        }
-
         // ==================== CHANNEL LOADING ====================
         
         async function loadChannel() {
@@ -1662,9 +1493,6 @@
                 `;
 
                 renderVideos();
-                
-                // MODIFICATION 2: Load stats when channel is loaded
-                refreshStats();
 
                 showAlert(`✅ Loaded "${currentChannel.name}" with ${videos.length} videos`, 'success', 4000);
                 addLogEntry(`✅ Channel loaded: ${currentChannel.name} (${videos.length} videos)`, 'success');
@@ -1944,9 +1772,6 @@
                         });
                         
                         renderVideos();
-                        
-                        // Refresh stats after download completes
-                        refreshStats();
                     }
                     
                     if (!hasActiveDownloads && completedThisTick.length === 0) {

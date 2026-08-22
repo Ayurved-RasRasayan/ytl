@@ -1549,144 +1549,6 @@ app.delete('/api/channels/:id', (req, res) => {
 });
 
 // =============================================================================
-// MODIFICATION 2: VIDEO COUNT COMPARISON FEATURE
-// =============================================================================
-
-// GET /api/channels/:id/stats - Get video count comparison
-app.get('/api/channels/:id/stats', async (req, res) => {
-    try {
-        const channelId = req.params.id;
-        
-        // Find channel in data
-        const channel = savedChannels.get(channelId) || 
-                       Array.from(savedChannels.values()).find(c => c.id === channelId || c.channelId === channelId || c.youtubeId === channelId);
-        
-        if (!channel) {
-            return res.status(404).json({ success: false, error: 'Channel not found' });
-        }
-        
-        // 1. Get YouTube video count using yt-dlp
-        const youtubeCount = await getYoutubeVideoCount(channel.url);
-        
-        // 2. Get downloaded files count
-        const downloadedCount = getDownloadedFilesCount(channel.name || channelId);
-        
-        // 3. Calculate stats
-        const missingCount = Math.max(0, youtubeCount - downloadedCount);
-        const progressPercent = youtubeCount > 0 ? ((downloadedCount / youtubeCount) * 100).toFixed(1) : 0;
-        
-        res.json({
-            success: true,
-            channelId: channelId,
-            channelName: channel.name || 'Unknown Channel',
-            stats: {
-                youtubeTotal: youtubeCount,
-                downloadedCount: downloadedCount,
-                missingCount: missingCount,
-                progressPercent: parseFloat(progressPercent),
-                lastChecked: new Date().toISOString()
-            }
-        });
-        
-    } catch (error) {
-        console.error('[Stats] Error getting channel stats:', error.message);
-        res.status(500).json({ 
-            success: false, 
-            error: 'Failed to get channel stats',
-            details: error.message 
-        });
-    }
-});
-
-// Helper: Count videos on YouTube using yt-dlp (OPTIMIZED)
-// Uses yt-dlp's built-in %(n_entries)s for direct count - no piping needed!
-// Works on Windows, Linux, macOS - truly cross-platform!
-async function getYoutubeVideoCount(channelUrl) {
-    return new Promise((resolve, reject) => {
-        // ⭐ OPTIMIZED: Use %(n_entries)s to get count DIRECTLY from yt-dlp
-        // This is faster than listing all IDs and counting lines
-        // No pipes, no wc, no JavaScript line counting needed!
-        const cmd = `yt-dlp --flat-playlist --print "%(n_entries)s" "${channelUrl}" 2>nul`;
-        
-        exec(cmd, (error, stdout, stderr) => {
-            if (error) {
-                // If yt-dlp fails, return 0 gracefully
-                console.error('[Stats] yt-dlp error:', error.message);
-                resolve(0);
-                return;
-            }
-            
-            // The output should be just a number (the count)
-            const output = stdout.trim();
-            
-            // Try to parse as direct number first (from n_entries)
-            let count = parseInt(output, 10);
-            
-            if (isNaN(count) || count === 0) {
-                // Fallback: If n_entries didn't work, try counting IDs
-                // This handles older yt-dlp versions that might not support n_entries
-                console.log('[Stats] n_entries not available, falling back to ID counting...');
-                
-                const fallbackCmd = `yt-dlp --flat-playlist --print "%(id)s" "${channelUrl}" 2>nul`;
-                exec(fallbackCmd, (fallbackError, fallbackStdout) => {
-                    if (fallbackError) {
-                        console.error('[Stats] Fallback also failed:', fallbackError.message);
-                        resolve(0);
-                        return;
-                    }
-                    
-                    // Count non-empty lines in JavaScript (cross-platform)
-                    const lines = fallbackStdout.trim().split('\n').filter(line => line.trim());
-                    count = lines.length;
-                    console.log(`[Stats] Found ${count} videos on YouTube (fallback method)`);
-                    resolve(count);
-                });
-            } else {
-                console.log(`[Stats] Found ${count} videos on YouTube (direct method)`);
-                resolve(count);
-            }
-        });
-    });
-}
-
-// Helper: Count downloaded files in channel folder
-function getDownloadedFilesCount(channelName) {
-    try {
-        const downloadsDir = path.join(DOWNLOADS_DIR, channelName, 'Videos');
-        
-        // Also check the channel root folder
-        const channelDir = path.join(DOWNLOADS_DIR, channelName);
-        let dirToCheck = downloadsDir;
-        
-        if (!fs.existsSync(downloadsDir) && fs.existsSync(channelDir)) {
-            dirToCheck = channelDir;
-        } else if (!fs.existsSync(downloadsDir) && !fs.existsSync(channelDir)) {
-            return 0;
-        }
-        
-        if (!fs.existsSync(dirToCheck)) {
-            return 0;
-        }
-        
-        const files = fs.readdirSync(dirToCheck);
-        // Count only video files (filter out partial downloads, .tmp files, etc.)
-        const videoFiles = files.filter(file => {
-            const ext = path.extname(file).toLowerCase();
-            return ['.mp4', '.webm', '.mkv', '.avi', '.mov'].includes(ext) && 
-                   !file.startsWith('.') && 
-                   !file.includes('.part') &&
-                   !file.includes('.tmp') &&
-                   !file.includes('.ytdl');
-        });
-        
-        return videoFiles.length;
-    } catch (error) {
-        console.error('[Stats] Error counting downloaded files:', error.message);
-        return 0;
-    }
-}
-
-// =============================================================================
 // DOWNLOAD QUEUE ENDPOINTS
 // =============================================================================
 
@@ -3182,7 +3044,6 @@ app.use((req, res) => {
     console.log('   GET  /api/download/list');
     console.log('   GET  /api/download-queue');      // ← Queue status (frontend polls!)
     console.log('   DELETE /api/download-queue');    // ← Clear queue
-    console.log('   GET  /api/channels/:id/stats');  // ← Video count comparison (NEW!)
     console.log('   GET  /api/system/status');
     console.log('   POST  /api/login');              // ← Authentication
     console.log('   POST  /api/logout');             // ← Authentication
@@ -3208,7 +3069,6 @@ app.use((req, res) => {
             '/api/downloads',
             '/api/download-queue',
             '/api/system/status',
-            '/api/channels/:id/stats',     // ← Video count comparison (NEW!)
             '/api/login',                  // ← Auth
             '/api/logout',                 // ← Auth
             '/api/auth/status'             // ← Auth status
@@ -3268,13 +3128,11 @@ app.listen(PORT, () => {
     console.log('║  GET    /api/download/queue/status Queue status (max 2 concurrent) ║');  // ⭐ NEW
     console.log('║  GET    /api/files              List all downloaded files        ║');
     console.log('║  GET    /api/download-file/:id  Download file by ID            ║');
-    console.log('║  GET    /api/channels/:id/stats Video count comparison (NEW!)  ║');
     console.log('╚══════════════════════════════════════════════════════════════╝');
     console.log('');
     console.log('⭐ FEATURES ENABLED:');
     console.log('   - ✅ Authentication (Session-based, 2-day expiry)');
     console.log('   - ✅ Rate limiting (5 login attempts per 15 min)');
-    console.log('   - ✅ Video count comparison (YouTube vs Downloaded)');
     console.log('   - ✅ Duplicate filename handling');
     console.log('   - ✅ Sequential download (one at a time)');
     console.log('   - ⭐ Download Queue (MAX 2 concurrent, rest wait in queue)');  // ⭐ NEW
