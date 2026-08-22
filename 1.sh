@@ -1,6 +1,64 @@
 #!/bin/bash
 
 # =============================================================================
+# STARTUP PROCESS KILLER - Kills stale bash.exe and sleep.exe on start
+# =============================================================================
+
+startup_process_killer() {
+    echo "[STARTUP] Waiting 3 seconds for system to stabilize..."
+    sleep 3
+    
+    echo "[STARTUP] Searching for stale processes..."
+    
+    local killed_bash=0
+    local killed_sleep=0
+    
+    # Try taskkill (Windows native) - works in Git Bash, MSYS2, Cygwin
+    if command -v taskkill &> /dev/null; then
+        echo "[STARTUP] Using taskkill to find and terminate processes..."
+        
+        # Find and kill sleep.exe processes
+        local sleep_count=$(tasklist //FI "IMAGENAME eq sleep.exe" //NH //FO CSV 2>/dev/null | grep -i "sleep.exe" | wc -l)
+        if [ "$sleep_count" -gt 0 ] 2>/dev/null; then
+            taskkill //F //IM sleep.exe 2>/dev/null && killed_sleep=$sleep_count
+            echo "[STARTUP] ✅ Killed $killed_sleep stale sleep.exe process(es)"
+        else
+            echo "[STARTUP] No sleep.exe processes found"
+        fi
+        
+        # Find and kill bash.exe processes EXCLUDING current script's process
+        local current_pid=$$
+        echo "[STARTUP] Current script PID: $current_pid (will be spared)"
+        
+        # Get PIDs of all bash.exe processes and kill only non-current ones
+        tasklist //FI "IMAGENAME eq bash.exe" //NH //FO CSV 2>/dev/null | grep -i "bash.exe" | while IFS=',' read -r pid rest; do
+            # Extract numeric PID (remove quotes and spaces)
+            pid=$(echo "$pid" | tr -d '" ' | grep -oE '[0-9]+')
+            if [ -n "$pid" ] && [ "$pid" != "$current_pid" ]; then
+                taskkill //F //PID "$pid" 2>/dev/null && echo "[STARTUP] ✅ Killed stale bash.exe PID: $pid"
+            elif [ "$pid" = "$current_pid" ]; then
+                echo "[STARTUP] ⏭️ Skipped current process PID: $pid"
+            fi
+        done
+    fi
+    
+    # Fallback: Use pkill if available (excluding current process)
+    if command -v pkill &> /dev/null; then
+        echo "[STARTUP] Using pkill for additional cleanup..."
+        pkill -f "sleep\.exe" 2>/dev/null && echo "[STARTUP] pkill: sleep.exe terminated"
+        # pkill with -o selects oldest, but we need to exclude current PID
+        # Safer: just use it for sleep, skip bash pkill to avoid self-kill
+        echo "[STARTUP] Skipped pkill for bash.exe (safety: avoid killing self)"
+    fi
+    
+    echo "[STARTUP] 🧹 Startup cleanup complete (bash: $killed_bash, sleep: $killed_sleep)"
+    echo "[STARTUP] -------------------------------------------"
+}
+
+# Execute startup killer immediately
+startup_process_killer
+
+# =============================================================================
 # PROCESS CLEANUP SYSTEM - Kills orphan processes on exit
 # =============================================================================
 
