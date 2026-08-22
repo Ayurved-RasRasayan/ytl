@@ -1752,13 +1752,13 @@ app.delete('/api/download-queue', (req, res) => {
 /**
  * Global download queue system
  * - maxConcurrent: Maximum downloads running at once (2)
- * - activeDownloads: Count of currently running downloads
+ * - activeJobs: Array of CURRENTLY RUNNING job objects (max 2)
  * - queue: Array of pending download jobs waiting for a slot
  */
 const downloadQueue = {
     maxConcurrent: 2,                    // ⭐ MAX 2 downloads at a time!
-    activeDownloads: 0,                  // Currently running count
-    queue: [],                           // Waiting jobs: [{downloadId, videoUrl, outputPath, videoTitle}]
+    activeJobs: [],                      // ⭐ NEW: Track ACTUALLY running jobs
+    queue: [],                           // Waiting jobs
     
     /**
      * Add a download job to the queue
@@ -1766,31 +1766,47 @@ const downloadQueue = {
      * Otherwise, wait in queue
      */
     enqueue(downloadId, videoUrl, outputPath, videoTitle) {
-        const job = { downloadId, videoUrl, outputPath, videoTitle };
+        const job = { 
+            downloadId, 
+            videoUrl, 
+            outputPath, 
+            videoTitle,
+            startedAt: null  // Track when job actually starts
+        };
         
         console.log(`\n[Download Queue] 📥 Job added: ${videoTitle?.substring(0, 30)}...`);
-        console.log(`[Download Queue] Active: ${this.activeDownloads}/${this.maxConcurrent} | Queue: ${this.queue.length}`);
+        console.log(`[Download Queue] Active: ${this.activeJobs.length}/${this.maxConcurrent} | Queue: ${this.queue.length}`);
         
-        if (this.activeDownloads < this.maxConcurrent) {
+        if (this.activeJobs.length < this.maxConcurrent) {
             // Slot available - start immediately!
-            this.activeDownloads++;
-            console.log(`[Download Queue] ▶️ Starting immediately (slot ${this.activeDownloads}/${this.maxConcurrent})`);
+            console.log(`[Download Queue] ▶️ Starting immediately (slot ${this.activeJobs.length + 1}/${this.maxConcurrent})`);
             this.executeJob(job);
         } else {
-            // No slot - add to queue
+            // No slot - add to queue AND set status to 'queued'
             this.queue.push(job);
             console.log(`[Download Queue] ⏳ Queued at position #${this.queue.length} (waiting for slot)`);
+            
+            // ⭐ KEY FIX: Mark as 'queued' in downloadManager (not 'downloading'!)
+            downloadManager.update(downloadId, { status: 'queued' });
         }
     },
     
     /**
      * Execute a single download job
+     * ⭐ FIX: Add to activeJobs when starting, remove on complete
      */
     executeJob(job) {
         const { downloadId, videoUrl, outputPath, videoTitle } = job;
         
+        // ⭐ KEY FIX: Add to activeJobs tracking
+        job.startedAt = Date.now();
+        this.activeJobs.push(job);
+        
         // Update status to downloading
         downloadManager.update(downloadId, { status: 'downloading', startTime: Date.now() });
+        
+        console.log(`[Download Queue] ▶️ Job STARTED: ${videoTitle?.substring(0, 30)}...`);
+        console.log(`[Download Queue] Active jobs: ${this.activeJobs.length} | Waiting: ${this.queue.length}`);
         
         // Start the actual download
         executeSmartDownload(downloadId, videoUrl, outputPath, videoTitle)
@@ -1801,70 +1817,103 @@ const downloadQueue = {
                 console.error(`[Download Queue] ❌ Job failed: ${videoTitle?.substring(0, 30)}... -`, err?.message);
             })
             .finally(() => {
-                // Free up a slot and process next in queue
-                this.onJobComplete();
+                // ⭐ KEY FIX: Remove from activeJobs and process next
+                this.onJobComplete(job);
             });
     },
     
     /**
      * Called when a download finishes (success or fail)
      * Frees a slot and starts next queued job if any
+     * ⭐ FIX: Takes the completed job as parameter to remove it properly
      */
-    onJobComplete() {
-        this.activeDownloads--;
-        console.log(`\n[Download Queue] 🔓 Slot freed! Active: ${this.activeDownloads}/${this.maxConcurrent} | Queue: ${this.queue.length}`);
+    onJobComplete(completedJob) {
+        // ⭐ KEY FIX: Remove specific job from activeJobs
+        if (completedJob) {
+            const idx = this.activeJobs.findIndex(j => j.downloadId === completedJob.downloadId);
+            if (idx !== -1) {
+                this.activeJobs.splice(idx, 1);
+                console.log(`[Download Queue] 🔓 Removed from active: ${completedJob.videoTitle?.substring(0, 30)}...`);
+            }
+        }
         
-        if (this.queue.length > 0 && this.activeDownloads < this.maxConcurrent) {
+        console.log(`\n[Download Queue] 📊 Status: Active=${this.activeJobs.length}/${this.maxConcurrent} | Queue=${this.queue.length}`);
+        
+        if (this.queue.length > 0 && this.activeJobs.length < this.maxConcurrent) {
             // Get next job from queue
             const nextJob = this.queue.shift();
-            this.activeDownloads++;
             
             console.log(`[Download Queue] ▶️ Starting next in queue: ${nextJob.videoTitle?.substring(0, 30)}...`);
             console.log(`[Download Queue] Remaining in queue: ${this.queue.length}`);
             
-            this.executeJob(nextJob);
-        } else if (this.queue.length === 0 && this.activeDownloads === 0) {
+            // Small delay before starting next (5 seconds as requested)
+            setTimeout(() => {
+                this.executeJob(nextJob);
+            }, 5000);  // ⭐ 5 second delay between downloads
+            
+        } else if (this.queue.length === 0 && this.activeJobs.length === 0) {
             console.log('[Download Queue] 🎉 All downloads complete! Queue empty.');
         }
     },
     
     /**
      * Get queue status for API responses
+     * ⭐ FIX: Return proper active jobs from our tracking, not from downloadManager
      */
     getStatus() {
+        // Get progress info for active jobs from downloadManager
+        const activeDownloadDetails = this.activeJobs.map(job => {
+            const dlInfo = downloadManager.get(job.downloadId);
+            return {
+                id: job.downloadId,
+                title: job.videoTitle,
+                status: 'downloading',
+                progress: dlInfo?.progress || 0,
+                speed: dlInfo?.speed || null,
+                startedAt: job.startedAt
+            };
+        });
+        
         return {
             maxConcurrent: this.maxConcurrent,
-            active: this.activeDownloads,
+            active: this.activeJobs.length,
             queued: this.queue.length,
+            activeDownloads: activeDownloadDetails,  // ⭐ Only TRULY active downloads
             queue: this.queue.map(job => ({
                 id: job.downloadId,
                 title: job.videoTitle,
-                status: 'waiting'
+                status: 'waiting',
+                position: this.queue.indexOf(job) + 1
             }))
         };
     },
     
     /**
      * Clear queue (for cancel operations)
+     * Does NOT affect currently running downloads
      */
     clearQueue() {
         const cleared = this.queue.length;
+        
+        // Mark cleared jobs as cancelled in downloadManager
+        this.queue.forEach(job => {
+            downloadManager.update(job.downloadId, { status: 'cancelled' });
+        });
+        
         this.queue = [];
         console.log(`[Download Queue] 🗑️ Queue cleared (${cleared} jobs removed)`);
         return cleared;
     },
     
     /**
-     * ⭐ SAFETY: Process next job if stuck (backup mechanism)
-     * Call this periodically or when detecting potential stalls
+     * SAFETY: Process next job if stuck (backup mechanism)
      */
     processStuckQueue() {
         // Check if we have capacity and queued jobs
-        if (this.activeDownloads < this.maxConcurrent && this.queue.length > 0) {
+        if (this.activeJobs.length < this.maxConcurrent && this.queue.length > 0) {
             console.log('[Download Queue] 🔄 Safety check: Found stuck jobs, processing...');
-            while (this.activeDownloads < this.maxConcurrent && this.queue.length > 0) {
+            while (this.activeJobs.length < this.maxConcurrent && this.queue.length > 0) {
                 const nextJob = this.queue.shift();
-                this.activeDownloads++;
                 console.log(`[Download Queue] ▶️ Safety-starting: ${nextJob.videoTitle?.substring(0, 30)}...`);
                 this.executeJob(nextJob);
             }
@@ -2978,23 +3027,17 @@ app.post('/api/download/sequential/cancel', (req, res) => {
 /**
  * GET /api/download/queue/status - Get current download queue status
  * Shows how many downloads are active, how many are waiting in queue
+ * ⭐ FIX: Uses queue's own tracking for accurate active/waiting lists
  */
 app.get('/api/download/queue/status', (req, res) => {
     const queueStatus = downloadQueue.getStatus();
     
-    // Also get details of currently active downloads
-    const activeDownloads = downloadManager.getActive();
-    
+    // ⭐ KEY FIX: Use queueStatus.activeDownloads (from queue's own tracking)
+    // NOT downloadManager.getActive() which includes queued jobs too!
     res.json({
         success: true,
         queue: queueStatus,
-        activeDownloads: activeDownloads.map(d => ({
-            id: d.id,
-            title: d.title,
-            progress: d.progress,
-            speed: d.speed || null,
-            status: d.status
-        })),
+        activeDownloads: queueStatus.activeDownloads,  // Only TRULY active jobs
         message: `Running ${queueStatus.active}/${queueStatus.maxConcurrent} downloads, ${queueStatus.queued} waiting in queue`
     });
 });

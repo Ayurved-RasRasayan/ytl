@@ -2182,15 +2182,35 @@
                 isWaiting: true
             }));
             
-            const allItems = [...activeItems, ...waitingItems];
+            // ⭐ DEDUPLICATION FIX (Option B)
+            // Remove waiting items that already appear in active list (by ID or title)
+            const activeIds = new Set(activeItems.map(item => item.id || item.videoId || item.title));
+            const uniqueWaitingItems = waitingItems.filter(item => {
+                const itemId = item.id || item.videoId || item.title;
+                return !activeIds.has(itemId);
+            });
+            
+            // Combine: Active first, then unique waiting items
+            const allItems = [...activeItems, ...uniqueWaitingItems];
 
             if (allItems.length === 0) {
                 container.innerHTML = '<p style="text-align: center; color: #666; padding: 15px;">No downloads in queue</p>';
                 return;
             }
 
-            // ⭐ Single-line queue items with status
-            container.innerHTML = allItems.map(item => `
+            // ⭐ Single-line queue items with status - renumber positions after dedup
+            let activeIdx = 0;
+            let waitingIdx = 0;
+            
+            container.innerHTML = allItems.map(item => {
+                // Renumber positions based on actual display order
+                if (!item.isWaiting) {
+                    item.position = `🟢 #${++activeIdx}`;
+                } else {
+                    item.position = `⏳ #${++waitingIdx}`;
+                }
+                
+                return `
                 <div class="queue-item ${item.isWaiting ? 'waiting' : 'downloading'}">
                     <div class="queue-item-info">
                         <span class="queue-position">${item.position}</span>
@@ -2204,7 +2224,8 @@
                         ${item.speed && !item.isWaiting ? `<span style="color:#666">@${item.speed}</span>` : ''}
                     </div>
                 </div>
-            `).join('');
+            `;
+            }).join('');
         }
         
         // Clear only waiting downloads (not active ones)
