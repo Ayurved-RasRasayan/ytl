@@ -668,7 +668,8 @@ function processDuplicateTitles(videos) {
         const processedVideo = {
             ...video,
             originalTitle: originalTitle,
-            displayTitle: originalTitle,      // What frontend shows
+            displayTitle: originalTitle,      // What frontend shows (raw YouTube title)
+            sanitizedTitle: sanitizeFilename(originalTitle),  // ⭐ BUG FIX #10: Pre-computed sanitized name for sync matching
             downloadFilename: null           // What file will be named (set on download)
         };
         
@@ -726,7 +727,11 @@ function processDuplicateTitles(videos) {
             }
         } else {
             // Unique title - no changes needed
-            processedVideo.downloadFilename = `${sanitizeFilename(originalTitle)}.mp4`;
+            // ⭐ BUG FIX #10: Keep downloadFilename as NULL for unique titles!
+            // This allows Option 2a sync logic to distinguish:
+            //   - downloadFilename = null   → UNIQUE title → use sanitizedTitle + '.mp4'
+            //   - downloadFilename = "..."  → DUPLICATE → use downloadFilename directly
+            // processedVideo.downloadFilename remains null (set at line 673)
         }
         
         return processedVideo;
@@ -1713,10 +1718,42 @@ app.get('/api/channels/:id/sync-status', (req, res) => {
         
         // Match each video with its download status
         const syncResults = videos.map((video, index) => {
-            // Use displayTitle DIRECTLY (no sanitization needed)
-            // yt-dlp saves files as: displayTitle + ".mp4"
-            const videoTitle = video.displayTitle || video.title || '';
-            const expectedFilename = (videoTitle + '.mp4').toLowerCase();
+            // ⭐⭐⭐ BUG FIX #10: OPTION 2A - SMART HYBRID MATCHING ⭐⭐⭐
+            // 
+            // PROBLEM: YouTube titles contain illegal Windows chars (|?*<>:"/\) that yt-dlp sanitizes
+            // EXAMPLE: "Experiment Part-2 | Title?" → "Experiment Part-2 - Title-.mp4" on disk
+            //
+            // COMPLICATION: Duplicate titles get duration suffix appended by processDuplicateTitles()
+            // EXAMPLE: "Test Video" (duplicate) → "test-video--(00:05:30).mp4"
+            //
+            // SOLUTION (Option 2a - Smart Hybrid):
+            //   - IF video has downloadFilename (is duplicate) → use it directly (includes duration)
+            //   - ELSE (unique title) → use sanitizedTitle + ".mp4" (just sanitizes illegal chars)
+            
+            const videoTitle = video.displayTitle || video.title || '';  // For display/logging
+            
+            let expectedFilename;
+            let matchingStrategy;
+            
+            if (video.downloadFilename) {
+                // ─── DUPLICATE TITLE PATH ───
+                // Use pre-computed downloadFilename which includes:
+                //   1. Sanitized base name (illegal chars replaced)
+                //   2. Duration suffix --(HH:MM:SS) for uniqueness
+                //   3. Or counter suffix #2, #3 for same-title-same-duration edge case
+                
+                expectedFilename = video.downloadFilename.toLowerCase();
+                matchingStrategy = 'DUPLICATE (downloadFilename)';
+            } else {
+                // ─── UNIQUE TITLE PATH ───
+                // Use sanitizedTitle which only replaces illegal Windows characters:
+                //   | ? * < > : " / \  →  -
+                // No duration suffix needed since title is unique
+                
+                const sanitizedBase = video.sanitizedTitle || sanitizeFilename(videoTitle);
+                expectedFilename = (sanitizedBase + '.mp4').toLowerCase();
+                matchingStrategy = 'UNIQUE (sanitizedTitle)';
+            }
             
             // Check if this exact filename:
             // 1. Exists in the actual files AND
@@ -1725,9 +1762,17 @@ app.get('/api/channels/:id/sync-status', (req, res) => {
             const isDownloaded = fileExists && !consumedFiles.has(expectedFilename);
             
             // Debug logging for first few videos and all matches
-            if (index < 3 || (fileExists && index < 20)) {
+            if (index < 5 || (fileExists && index < 20)) {
                 console.log(`[Sync] Video ${index}: "${videoTitle}"`);
-                console.log(`[Sync]   → Expected: "${expectedFilename}"`);
+                console.log(`[Sync]   → Strategy: ${matchingStrategy}`);
+                console.log(`[Sync]   → Raw (display):    "${videoTitle}.mp4"`);
+                console.log(`[Sync]   → Expected match:   "${expectedFilename}"`);
+                if (videoTitle !== (video.sanitizedTitle || videoTitle)) {
+                    console.log(`[Sync]   ⭐ Sanitized! Illegal chars replaced: |?*<>:"/\\ → -`);
+                }
+                if (video.downloadFilename) {
+                    console.log(`[Sync]   ⚠️ Duplicate detected - using downloadFilename with duration/counter`);
+                }
                 console.log(`[Sync]   → File exists: ${fileExists ? '✅ YES' : '❌ NO'}`);
                 if (fileExists) {
                     console.log(`[Sync]   → Already consumed: ${consumedFiles.has(expectedFilename) ? '⚠️ YES' : '❌ NO'}`);
@@ -1761,9 +1806,12 @@ app.get('/api/channels/:id/sync-status', (req, res) => {
             return {
                 id: video.id || video.videoId,
                 title: videoTitle,
-                displayTitle: video.displayTitle || video.title,
+                displayTitle: video.displayTitle || video.title,           // Raw YouTube title (for UI)
+                sanitizedTitle: video.sanitizedTitle || '',               // Sanitized base (no illegal chars)
                 isDownloaded: isDownloaded,
-                expectedFilename: videoTitle + '.mp4',
+                expectedFilename: expectedFilename,                       // What we looked for (Option 2a result)
+                originalExpectedFilename: videoTitle + '.mp4',            // Raw version (for comparison)
+                matchingStrategy: matchingStrategy,                       // Which path was taken
                 fileInfo: fileInfo
             };
         });
@@ -1788,13 +1836,22 @@ app.get('/api/channels/:id/sync-status', (req, res) => {
             scannedAt: new Date().toISOString()
         };
         
-        console.log('\n[Sync] ✅ SYNC COMPLETE (Reverse Matching with Deduplication):');
+        console.log('\n[Sync] ✅ SYNC COMPLETE (Option 2a - Smart Hybrid Matching):');
         console.log('   ════════════════════════════════════════════════════════');
         console.log('   📊 Total videos in channel:', totalVideos);
         console.log('   📁 Physical .mp4 files on disk:', downloadedFiles.length);
         console.log('   ✅ Files matched/consumed (Downloaded):', consumedFiles.size);
         console.log('   🔴 Videos without files (Remaining):', remainingCount);
         console.log('   📈 Download percentage:', ((downloadedCount / totalVideos) * 100).toFixed(1) + '%');
+        
+        // ⭐ BUG FIX #10: Show Option 2a strategy breakdown
+        const uniqueCount = syncResults.filter(v => v.matchingStrategy === 'UNIQUE (sanitizedTitle)').length;
+        const duplicateCount = syncResults.filter(v => v.matchingStrategy === 'DUPLICATE (downloadFilename)').length;
+        console.log('\n   🎯 Option 2a Strategy Breakdown:');
+        console.log('      ──────────────────────────────────────');
+        console.log(`      📝 Unique titles (sanitizedTitle):     ${uniqueCount}`);
+        console.log(`      🔁 Duplicate titles (downloadFilename): ${duplicateCount}`);
+        console.log('      ──────────────────────────────────────');
         
         // Validation check
         if (downloadedCount > downloadedFiles.length) {
