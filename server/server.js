@@ -2505,9 +2505,12 @@ async function renameDownloadedFile(downloadObj, originalPath) {
         console.log('[Rename] Target title:', videoTitle);
         
         // Sanitize filename (remove invalid characters)
+        // ⭐ BUG FIX: Match /api/download sanitization rules (Line 1411-1415)
+        // Must handle # @ ! $ % ^ & + = ; , ~ ` and other special chars
+        // Previous regex only replaced [:"/\\|?*] which missed # causing rename failures!
         let sanitizedTitle = videoTitle
-            .replace(/[:"/\\|?*]/g, '-')  // Replace invalid chars with hyphen
-            .replace(/\s+/g, ' ')             // Collapse multiple spaces
+            .replace(/[^a-zA-Z0-9._\-() ]/g, '_')  // Replace ALL non-safe chars with underscore
+            .replace(/\s+/g, '_')                     // Replace spaces with underscore (match download format)
             .trim();
         
         // Limit length (Windows max path is 260 chars, leave room for path)
