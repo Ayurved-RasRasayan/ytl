@@ -695,13 +695,13 @@ function processDuplicateTitles(videos) {
                 // Build display title: "Original Title (21m-26s)"
                 processedVideo.displayTitle = `${originalTitle} (${durationStr})`;
                 
-                // Build download filename: "original-title-(21m-26s).mp4"
+                // Build download filename: "original title (21m-26s).mp4" (matches displayTitle format with SPACE)
                 const sanitizedBase = sanitizeFilename(originalTitle);
                 if (usageCount > 1) {
                     // Edge case: same title + same duration, add counter
-                    processedVideo.downloadFilename = `${sanitizedBase}-(${durationStr})-${usageCount}.mp4`;
+                    processedVideo.downloadFilename = `${sanitizedBase} (${durationStr})-${usageCount}.mp4`;
                 } else {
-                    processedVideo.downloadFilename = `${sanitizedBase}-(${durationStr}).mp4`;
+                    processedVideo.downloadFilename = `${sanitizedBase} (${durationStr}).mp4`;
                 }
                 
                 console.log(`[Duplicate Titles] Video ${index}: "${originalTitle}" → "${processedVideo.displayTitle}"`);
