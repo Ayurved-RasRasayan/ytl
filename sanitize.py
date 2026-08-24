@@ -11,6 +11,7 @@ NO COLLAPSING - every character stays as converted
 import re
 import sys
 import os
+import json
 import unicodedata
 
 # ============================================================
@@ -292,11 +293,65 @@ def quick_test():
 
 
 # ============================================================
+# JSON MODE - For programmatic use (e.g., Node.js integration)
+# ============================================================
+def json_mode(input_filename):
+    """
+    JSON mode for programmatic use.
+    Accepts filename as argument, outputs JSON result.
+    
+    Usage: python3 sanitize.py --json "filename to sanitize"
+    Output: {"sanitized": "clean-name", "original": "input", "success": true}
+    """
+    try:
+        result = sanitize_filename(input_filename, convert_leading=True)
+        
+        output = {
+            'sanitized': result,
+            'original': input_filename,
+            'success': True,
+            'length': len(result)
+        }
+        
+        print(json.dumps(output))
+        return output
+        
+    except Exception as e:
+        error_output = {
+            'sanitized': None,
+            'original': input_filename,
+            'success': False,
+            'error': str(e)
+        }
+        
+        print(json.dumps(error_output))
+        return error_output
+
+
+# ============================================================
 # ENTRY POINT
 # ============================================================
 if __name__ == "__main__":
     try:
-        if len(sys.argv) > 1 and sys.argv[1] == '--test':
+        # Check for JSON mode first
+        if len(sys.argv) > 1 and sys.argv[1] == '--json':
+            # JSON mode: python3 sanitize.py --json "filename"
+            if len(sys.argv) > 2:
+                input_name = sys.argv[2]
+                json_mode(input_name)
+            else:
+                # No filename provided, read from stdin
+                input_name = sys.stdin.read().strip() if not sys.stdin.isatty() else ''
+                if input_name:
+                    json_mode(input_name)
+                else:
+                    print(json.dumps({
+                        'sanitized': None,
+                        'original': '',
+                        'success': False,
+                        'error': 'No filename provided'
+                    }))
+        elif len(sys.argv) > 1 and sys.argv[1] == '--test':
             quick_test()
         else:
             main()
@@ -305,5 +360,5 @@ if __name__ == "__main__":
         import traceback
         traceback.print_exc()
     finally:
-        if sys.stdin.isatty():
+        if sys.stdin.isatty() and '--json' not in sys.argv:
             wait_for_exit()
