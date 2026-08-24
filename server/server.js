@@ -603,17 +603,29 @@ function fallbackSanitize(filename) {
  */
 function sanitizeViaPython(rawTitle) {
     try {
-        const result = execSync(
-            `python3 "${SANITIZE_PYTHON_SCRIPT}" --json "${rawTitle.replace(/"/g, '\\"').replace(/\$/g, '\\$')}"`,
+        // Use spawnSync with stdin to safely pass Unicode/Urdu/Arabic text
+        // This avoids Windows command-line encoding issues with non-ASCII characters
+        const { spawnSync } = require('child_process');
+        
+        // Detect Python command based on OS (windows uses 'python' or 'py', not 'python3')
+        const pythonCmd = process.platform === 'win32' ? 
+            (process.env.PYTHON || 'python') : 'python3';
+        
+        const result = spawnSync(
+            pythonCmd,
+            [SANITIZE_PYTHON_SCRIPT, '--json'],
             {
                 encoding: 'utf-8',
                 timeout: 5000,  // 5 second timeout
                 cwd: path.dirname(SANITIZE_PYTHON_SCRIPT),
-                stdio: ['pipe', 'pipe', 'pipe']
+                stdio: ['pipe', 'pipe', 'pipe'],
+                input: rawTitle  // Pass filename via stdin (safe for Unicode!)
             }
         );
         
-        const parsed = JSON.parse(result.trim());
+        if (result.error) throw result.error;
+        
+        const parsed = JSON.parse(result.stdout.trim());
         
         if (parsed.success && parsed.sanitized) {
             console.log(`[sanitizeViaPython] ✅ "${rawTitle}" → "${parsed.sanitized}"`);

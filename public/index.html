@@ -304,11 +304,53 @@
             min-width: 0;
             flex: 1;
             display: flex;
-            align-items: center;
-            gap: 12px;
+            flex-direction: column;
+            gap: 6px;
             overflow: hidden;
         }
 
+        /* ⭐ NEW: Two-column layout for titles */
+        .video-titles-container {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 10px;
+            align-items: start;
+        }
+
+        /* Column 1: Original YouTube Title */
+        .video-title-original {
+            font-weight: 500;
+            color: #2563eb;  /* Blue for original */
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+            font-size: 12px;
+            min-width: 0;
+        }
+
+        .video-title-original::before {
+            content: '📺 ';
+            opacity: 0.8;
+        }
+
+        /* Column 2: Sanitized Filename */
+        .video-title-sanitized {
+            font-weight: 500;
+            color: #059669;  /* Green for sanitized/filename */
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+            font-size: 12px;
+            font-family: 'Consolas', 'Monaco', 'Courier New', monospace;  /* Monospace for filenames */
+            min-width: 0;
+        }
+
+        .video-title-sanitized::before {
+            content: '💾 ';
+            opacity: 0.8;
+        }
+
+        /* Fallback for single title (if data missing) */
         .video-title {
             font-weight: 500;
             color: #333;
@@ -317,6 +359,28 @@
             white-space: nowrap;
             font-size: 13px;
             flex: 1; /* Take remaining space */
+        }
+
+        /* ⭐ Duplicate indicator badge */
+        .duplicate-badge {
+            background-color: #fef3c7;
+            color: #92400e;
+            padding: 2px 6px;
+            border-radius: 4px;
+            font-size: 10px;
+            font-weight: 600;
+            border: 1px solid #f59e0b;
+        }
+
+        /* ⭐ Z-Prefix indicator badge */
+        .z-prefix-badge {
+            background-color: #e0e7ff;
+            color: #3730a3;
+            padding: 2px 6px;
+            border-radius: 4px;
+            font-size: 10px;
+            font-weight: 600;
+            border: 1px solid #6366f1;
         }
 
         /* Meta info inline */
@@ -1370,6 +1434,17 @@
             .stats-banner-content {
                 grid-template-columns: 1fr 1fr;
             }
+
+            /* ⭐ Mobile: Stack two-column titles vertically */
+            .video-titles-container {
+                grid-template-columns: 1fr;
+                gap: 4px;
+            }
+
+            .video-title-original,
+            .video-title-sanitized {
+                font-size: 11px;
+            }
         }
 
         /* Tablet screens */
@@ -2210,10 +2285,27 @@
                            onchange="toggleVideo(${originalIndex})">
                     
                     <div class="video-info">
-                        <div class="video-title" title="${escapeHtml(video.displayTitle || video.title)}">${escapeHtml(video.displayTitle || video.title)}</div>
+                        <!-- ⭐ NEW: Two-column title layout -->
+                        <div class="video-titles-container">
+                            <!-- Column 1: Original YouTube Title (Blue) -->
+                            <div class="video-title-original" 
+                                 title="📺 Original YouTube Title&#10;${escapeHtml(video.title)}">
+                                ${escapeHtml(video.title)}
+                            </div>
+                            
+                            <!-- Column 2: Sanitized Filename (Green, Monospace) -->
+                            <div class="video-title-sanitized" 
+                                 title="💾 Sanitized Filename (will be saved as)&#10;${escapeHtml(video.finalFilename || video.displayTitle || video.title + '.mp4')}">
+                                ${escapeHtml(video.finalFilename ? video.finalFilename.replace(/\.mp4$/, '') : (video.displayTitle || video.title))}
+                            </div>
+                        </div>
+                        
+                        <!-- Meta info row -->
                         <div class="video-meta">
                             ${video.duration ? `<span>⏱️${formatDuration(video.duration)}</span>` : ''}
                             ${video.views && video.views !== 'NA' ? `<span>👁️${formatNumber(video.views)}</span>` : ''}
+                            ${video.isDuplicate ? `<span class="duplicate-badge">🔀 DUPLICATE</span>` : ''}
+                            ${video.sanitizedBase && video.sanitizedBase.startsWith('Z') ? `<span class="z-prefix-badge" title="Leading special chars converted to Z for safety">🔒 Z-Prefix</span>` : ''}
                         </div>
                     </div>
 
@@ -2229,7 +2321,7 @@
                         ` : video.downloadStatus === 'completed' || video.downloadStatus === 'downloaded' ? `
                             <button class="btn-success btn-small" onclick="downloadFile('${video.id || ''}', '${(video.title || 'video').replace(/'/g, "\\'")}', '${video.filePath || video.finalFilename || video.downloadFilename || ''}')">📥</button>
                         ` : video.downloadStatus === 'skipped' ? `
-                            <button class="btn-success btn-small" onclick="downloadFile('${video.id || ''}', '${(video.title || 'video').replace(/'/g, "\\'")}', '${video.filePath || video.downloadFilename || ''}')">📥</button>
+                            <button class="btn-success btn-small" onclick="downloadFile('${video.id || ''}', '${(video.title || 'video').replace(/'/g, "\\'")}', '${video.filePath || video.finalFilename || video.downloadFilename || ''}')">📥</button>
                         ` : video.downloadStatus === 'error' ? `
                             <button class="btn-danger btn-small" onclick="downloadVideo(${originalIndex})">🔄</button>
                         ` : `

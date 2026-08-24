@@ -56,24 +56,10 @@ def sanitize_filename(filename, convert_leading=True):
         safe_pattern = r'[^\p{L}\p{N}\s\._\-()]'
         sanitized = regex.sub(safe_pattern, '-', sanitized)
     else:
-        def is_unicode_letter_or_number(char):
-            try:
-                category = unicodedata.category(char)
-                return category.startswith('L') or category.startswith('N')
-            except:
-                return False
-        
-        def replace_special(match):
-            char = match.group(0)
-            if is_unicode_letter_or_number(char):
-                return char
-            elif char in ' ._-()':
-                return char
-            else:
-                return '-'
-        
-        safe_pattern = r'[^A-Za-z0-9\s\._\-()]'
-        sanitized = re.sub(safe_pattern, replace_special, sanitized)
+        # Python 3: \w matches Unicode letters by default!
+        # This preserves Urdu, Arabic, Chinese, etc. without needing 'regex' library
+        safe_pattern = r'[^\w\s\.\-()]'
+        sanitized = re.sub(safe_pattern, '-', sanitized)
     
     # ============================================================
     # STEP 3: NO COLLAPSING - removed entirely!
