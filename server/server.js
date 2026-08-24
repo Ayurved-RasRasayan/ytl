@@ -548,18 +548,262 @@ const downloadManager = {
 // =============================================================================
 // FILENAME DUPLICATE HANDLER (MODIFICATION 3)
 // =============================================================================
+// ⭐ NEW UNIFIED SANITIZATION & DEDUPLICATION SYSTEM
+// Uses sanitize.py for sanitization, duration-based deduplication
+// =============================================================================
+
+// Path to sanitize.py script (relative to project root)
+const SANITIZE_PYTHON_SCRIPT = path.join(__dirname, '..', 'sanitize.py');
 
 /**
- * Generates a unique filename by appending -1, -2, etc. if file exists
- * @param {string} directory - Target directory
- * @param {string} originalFilename - Original filename (e.g., "video.mp4")
- * @returns {string} - Safe filename (e.g., "video-1.mp4", "video-2.mp4")
+ * Fallback JavaScript sanitizer (used when Python is not available)
+ * This is a simplified version of sanitize.py logic
+ * @param {string} filename - Raw filename to sanitize
+ * @returns {string} Sanitized filename (preserves case)
  */
-function getUniqueFilename(directory, originalFilename) {
-    const ext = path.extname(originalFilename);           // ".mp4"
-    const baseName = path.basename(originalFilename, ext); // "video"
+function fallbackSanitize(filename) {
+    if (!filename || filename.trim() === '') return 'unnamed';
     
-    let finalFilename = originalFilename;
+    let sanitized = filename;
+    
+    // Replace illegal Windows characters with '_'
+    sanitized = sanitized.replace(/[\\/*?:"<>|]/g, '_');
+    
+    // Replace special characters with '-'
+    // Keep: Unicode letters, numbers, spaces, '.', '_', '-', '(', ')'
+    sanitized = sanitized.replace(/[^\w\s\._\-()]/g, '-');
+    
+    // Strip leading/trailing spaces and dots
+    sanitized = sanitized.trim(' .');
+    
+    // Convert leading '_' or '-' to 'Z'
+    if (sanitized && (sanitized[0] === '_' || sanitized[0] === '-')) {
+        sanitized = 'Z' + sanitized.slice(1);
+    }
+    
+    // Handle reserved device names
+    const reserved = /^(CON|PRN|AUX|NUL|COM[1-9]|LPT[1-9])(\..*)?$/i;
+    if (reserved.test(sanitized)) {
+        sanitized = '_' + sanitized;
+    }
+    
+    // Enforce max length (230 chars to leave room for suffix + extension)
+    if (sanitized.length > 230) {
+        sanitized = sanitized.substring(0, 230);
+    }
+    
+    return sanitized || 'unnamed';
+}
+
+/**
+ * Call sanitize.py via child_process for proper sanitization
+ * Falls back to JS-based sanitizer if Python fails
+ * @param {string} rawTitle - Raw YouTube video title
+ * @returns {string} Sanitized filename (preserves case, as per sanitize.py rules)
+ */
+function sanitizeViaPython(rawTitle) {
+    try {
+        const result = execSync(
+            `python3 "${SANITIZE_PYTHON_SCRIPT}" --json "${rawTitle.replace(/"/g, '\\"').replace(/\$/g, '\\$')}"`,
+            {
+                encoding: 'utf-8',
+                timeout: 5000,  // 5 second timeout
+                cwd: path.dirname(SANITIZE_PYTHON_SCRIPT),
+                stdio: ['pipe', 'pipe', 'pipe']
+            }
+        );
+        
+        const parsed = JSON.parse(result.trim());
+        
+        if (parsed.success && parsed.sanitized) {
+            console.log(`[sanitizeViaPython] ✅ "${rawTitle}" → "${parsed.sanitized}"`);
+            return parsed.sanitized;
+        } else {
+            throw new Error(parsed.error || 'Unknown error from sanitize.py');
+        }
+        
+    } catch (error) {
+        console.warn(`[sanitizeViaPython] ⚠️ Python failed for "${rawTitle}":`, error.message);
+        console.warn('[sanitizeViaPython] Using fallback JS sanitizer instead');
+        return fallbackSanitize(rawTitle);
+    }
+}
+
+/**
+ * Format duration in seconds to (HHh-MMm-SSs) format
+ * Examples: 3630 → "(01h-00m-30s)", 1800 → "(30m-00s)", 45 → "(00m-45s)"
+ * @param {number|null} totalSeconds - Duration in seconds
+ * @returns {string|null} Formatted duration string like "(01h-15m-30s)" or null if invalid
+ */
+function formatDuration(totalSeconds) {
+    if (totalSeconds === null || totalSeconds === undefined || totalSeconds <= 0) {
+        return null;  // Signal to use video ID instead
+    }
+    
+    const hours = Math.floor(totalSeconds / 3600);
+    const minutes = Math.floor((totalSeconds % 3600) / 60);
+    const seconds = Math.floor(totalSeconds % 60);
+    
+    const parts = [];
+    
+    // Only include hours if > 0
+    if (hours > 0) {
+        parts.push(`${String(hours).padStart(2, '0')}h`);
+    }
+    
+    // Always include minutes and seconds (padded to 2 digits)
+    parts.push(`${String(minutes).padStart(2, '0')}m`);
+    parts.push(`${String(seconds).padStart(2, '0')}s`);
+    
+    return `(${parts.join('-')})`;
+}
+
+/**
+ * Resolve duplicates by adding duration/ID suffix to ALL items in duplicate groups
+ * 
+ * RULES:
+ * - Unique files (group size = 1): No suffix
+ * - Duplicate files (group size > 1): ALL items get suffix
+ *   - If duration available and unique: Use "(HHh-MMm-SSs)" format
+ *   - If duration conflict (same duration used twice): Fall back to "--videoId"
+ *   - If no duration available: Use "--videoId" format
+ * 
+ * Case handling: Group detection is case-insensitive, but output preserves original case
+ * Filename length: Base truncated to 230 chars if needed (leaves room for suffix + .mp4)
+ * 
+ * @param {Array} videos - Array of video objects from YouTube
+ *   Each video should have: id, title, duration (nullable)
+ * @returns {Array} Updated videos with these new properties:
+ *   - sanitizedBase: string (sanitized title without suffix)
+ *   - durationSuffix: string|null ("(HHh-MMm-SSs)" or "--videoId" or null)
+ *   - finalFilename: string (complete filename with .mp4)
+ *   - displayTitle: string (for UI - matches filename without .mp4)
+ *   - isDuplicate: boolean (whether this video was in a duplicate group)
+ */
+function resolveDuplicatesWithDuration(videos) {
+    if (!videos || videos.length === 0) {
+        return [];
+    }
+    
+    console.log('\n[resolveDuplicatesWithDuration] Processing', videos.length, 'videos...');
+    
+    // STEP 1: Sanitize all titles via sanitize.py (preserves case)
+    videos.forEach((video, index) => {
+        const rawTitle = video.title || 'Untitled';
+        video.sanitizedBase = sanitizeViaPython(rawTitle);
+        video._originalIndex = index;  // Preserve original order
+        console.log(`[resolveDuplicatesWithDuration] Video ${index}: "${rawTitle}" → "${video.sanitizedBase}"`);
+    });
+    
+    // STEP 2: Group by sanitized title (CASE-INSENSITIVE comparison)
+    const groups = new Map();  // key: lowercase(base), value: [videos]
+    
+    videos.forEach(video => {
+        const key = video.sanitizedBase.toLowerCase();
+        if (!groups.has(key)) {
+            groups.set(key, []);
+        }
+        groups.get(key).push(video);
+    });
+    
+    // Log grouping results
+    let duplicateGroupCount = 0;
+    groups.forEach((group, key) => {
+        if (group.length > 1) {
+            duplicateGroupCount++;
+            console.log(`[resolveDuplicatesWithDuration] 📋 Duplicate group "${key}": ${group.length} videos`);
+        }
+    });
+    console.log(`[resolveDuplicatesWithDuration] Found ${duplicateGroupCount} duplicate group(s), ${groups.size - duplicateGroupCount} unique video(s)`);
+    
+    // STEP 3: Process each group and assign suffixes
+    groups.forEach((group, groupKey) => {
+        if (group.length === 1) {
+            // UNIQUE: No suffix needed
+            const video = group[0];
+            video.durationSuffix = null;
+            video.finalFilename = `${video.sanitizedBase}.mp4`;
+            video.displayTitle = video.sanitizedBase;  // Technical view: show sanitized name
+            video.isDuplicate = false;
+            
+            console.log(`[resolveDuplicatesWithDuration] ✅ Unique: "${video.finalFilename}"`);
+            
+        } else {
+            // DUPLICATES: ALL items get suffix
+            
+            console.log(`[resolveDuplicatesWithDuration] 🔀 Processing ${group.length} duplicates for "${groupKey}"...`);
+            
+            // First pass: assign initial suffixes based on duration availability
+            group.forEach(video => {
+                const formattedDuration = formatDuration(video.duration);
+                
+                if (formattedDuration) {
+                    // Has valid duration → use duration suffix
+                    video._proposedSuffix = formattedDuration;
+                } else {
+                    // No duration → use video ID suffix
+                    video._proposedSuffix = `--${video.id}`;
+                }
+            });
+            
+            // Second pass: detect and resolve conflicts (same suffix used multiple times)
+            const suffixCounts = new Map();  // count occurrences of each suffix (lowercase)
+            
+            group.forEach(video => {
+                const lowerSuffix = video._proposedSuffix.toLowerCase();
+                suffixCounts.set(lowerSuffix, (suffixCounts.get(lowerSuffix) || 0) + 1);
+            });
+            
+            // Third pass: finalize suffixes (conflicting ones get video ID)
+            group.forEach(video => {
+                const lowerSuffix = video._proposedSuffix.toLowerCase();
+                const count = suffixCounts.get(lowerSuffix);
+                
+                if (count > 1) {
+                    // CONFLICT! Same duration used by multiple videos → force video ID
+                    console.log(`[resolveDuplicatesWithDuration] ⚠️ Duration conflict for "${video.title}", falling back to video ID`);
+                    video.durationSuffix = `--${video.id}`;
+                } else {
+                    // No conflict → keep proposed suffix
+                    video.durationSuffix = video._proposedSuffix;
+                }
+                
+                // Build final filename
+                video.finalFilename = `${video.sanitizedBase}${video.durationSuffix}.mp4`;
+                video.displayTitle = `${video.sanitizedBase}${video.durationSuffix}`;  // Technical view
+                video.isDuplicate = true;
+                
+                console.log(`[resolveDuplicatesWithDuration] ✅ Duplicate: "${video.finalFilename}"`);
+            });
+        }
+    });
+    
+    // Clean up temporary properties
+    videos.forEach(video => {
+        delete video._proposedSuffix;
+        delete video._originalIndex;
+    });
+    
+    const modifiedCount = videos.filter(v => v.isDuplicate).length;
+    console.log(`[resolveDuplicatesWithDuration] ✅ Processing complete: ${modifiedCount} video(s) are duplicates\n`);
+    
+    return videos;
+}
+
+/**
+ * Safety net: Ensure filename is unique on disk (last-resort handler)
+ * Appends -1, -2, etc. only if file somehow already exists
+ * This should rarely be needed since resolveDuplicatesWithDuration handles most cases
+ * 
+ * @param {string} directory - Target directory path
+ * @param {string} desiredFilename - Desired filename (e.g., "video.mp4")
+ * @returns {string} Guaranteed unique filename
+ */
+function ensureUniqueOnDisk(directory, desiredFilename) {
+    const ext = path.extname(desiredFilename);           // ".mp4"
+    const baseName = path.basename(desiredFilename, ext); // "video" or "video-(01h-15m-30s)"
+    
+    let finalFilename = desiredFilename;
     let counter = 1;
     
     while (fs.existsSync(path.join(directory, finalFilename))) {
@@ -568,179 +812,17 @@ function getUniqueFilename(directory, originalFilename) {
         
         // Safety limit to prevent infinite loops
         if (counter > 1000) {
-            console.warn('[Filename] Counter exceeded 1000, using timestamp');
+            console.warn('[ensureUniqueOnDisk] Counter exceeded 1000, using timestamp');
             finalFilename = `${baseName}-${Date.now()}${ext}`;
             break;
         }
     }
     
     if (counter > 1) {
-        console.log(`[Filename] Duplicate detected: "${originalFilename}" → "${finalFilename}"`);
+        console.log(`[ensureUniqueOnDisk] File existed, renamed: "${desiredFilename}" → "${finalFilename}"`);
     }
     
     return finalFilename;
-}
-
-// =============================================================================
-// DUPLICATE TITLE HANDLER - Append duration to duplicate video titles
-// =============================================================================
-
-/**
- * Convert duration from seconds to human-readable format (21m-26s)
- * @param {number|null} seconds - Duration in seconds
- * @returns {string} Formatted duration like "21m-26s" or "" if not available
- */
-function formatDurationForDisplay(seconds) {
-    if (!seconds || seconds <= 0) {
-        return '';
-    }
-    
-    const minutes = Math.floor(seconds / 60);
-    const remainingSeconds = Math.round(seconds % 60);
-    
-    // Format: 21m-26s
-    if (minutes > 0 && remainingSeconds > 0) {
-        return `${minutes}m-${remainingSeconds}s`;
-    } else if (minutes > 0) {
-        return `${minutes}m`;
-    } else {
-        return `${remainingSeconds}s`;
-    }
-}
-
-/**
- * Sanitize text for safe filename usage
- * Replaces special characters with safe alternatives
- * @param {string} text - Original text
- * @returns {string} Sanitized filename-safe text
- */
-function sanitizeFilename(text) {
-    if (!text) return 'untitled';
-    
-    return text
-        .replace(/[<>:"/\\|?*]/g, '-')  // Replace illegal chars with dash
-        .replace(/\s+/g, ' ')            // Collapse multiple spaces
-        .trim()
-        .substring(0, 200);              // Limit length for filesystem safety
-}
-
-/**
- * Process video list to detect and handle duplicate titles
- * Appends duration to duplicate titles to make them unique
- * 
- * @param {Array} videos - Array of video objects with title and duration
- * @returns {Array} Processed videos with displayTitle and downloadFilename added
- */
-// ⭐ BUG FIX #4: Enhanced duplicate handling for null/zero durations
-function processDuplicateTitles(videos) {
-    if (!videos || videos.length === 0) {
-        return [];
-    }
-    
-    console.log('\n[Duplicate Titles] Processing', videos.length, 'videos for duplicates...');
-    
-    // Step 1: Count occurrences of each title (case-insensitive)
-    const titleCount = {};
-    videos.forEach(video => {
-        const normalizedTitle = (video.title || '').toLowerCase().trim();
-        titleCount[normalizedTitle] = (titleCount[normalizedTitle] || 0) + 1;
-    });
-    
-    // Count how many titles are duplicated
-    const duplicateTitles = Object.entries(titleCount).filter(([title, count]) => count > 1);
-    console.log('[Duplicate Titles] Found', duplicateTitles.length, 'duplicate title(s):');
-    duplicateTitles.forEach(([title, count]) => {
-        console.log('   - "' + title + '" appears', count, 'times');
-    });
-    
-    // Step 2: Track which durations we've used for each title (to handle edge case of same title + same duration)
-    const titleDurationUsage = {};
-    // ⭐ NEW: Track counter for duplicates without duration
-    const titleCounter = {};
-    
-    // Step 3: Process each video
-    const processedVideos = videos.map((video, index) => {
-        const originalTitle = video.title || 'Untitled';
-        const normalizedTitle = originalTitle.toLowerCase().trim();
-        const isDuplicate = titleCount[normalizedTitle] > 1;
-        
-        // Create base processed video object
-        const processedVideo = {
-            ...video,
-            originalTitle: originalTitle,
-            displayTitle: originalTitle,      // What frontend shows (raw YouTube title)
-            sanitizedTitle: sanitizeFilename(originalTitle),  // ⭐ BUG FIX #10: Pre-computed sanitized name for sync matching
-            downloadFilename: null           // What file will be named (set on download)
-        };
-        
-        // Only append duration if this is a duplicate title AND has duration available
-        if (isDuplicate) {
-            const hasValidDuration = video.duration && video.duration > 0;
-            const durationStr = hasValidDuration ? formatDurationForDisplay(video.duration) : null;
-            
-            if (durationStr) {
-                // Create unique key for this title+duration combo
-                const titleDurationKey = `${normalizedTitle}|${durationStr}`;
-                
-                // Check if we've already used this exact title+duration combination
-                if (!titleDurationUsage[titleDurationKey]) {
-                    titleDurationUsage[titleDurationKey] = 1;
-                } else {
-                    // Same title AND same duration - add counter as fallback
-                    titleDurationUsage[titleDurationKey]++;
-                }
-                
-                const usageCount = titleDurationUsage[titleDurationKey];
-                
-                // Build display title: "Original Title (21m-26s)"
-                processedVideo.displayTitle = `${originalTitle} (${durationStr})`;
-                
-                // Build download filename: "original title (21m-26s).mp4" (matches displayTitle format with SPACE)
-                const sanitizedBase = sanitizeFilename(originalTitle);
-                if (usageCount > 1) {
-                    // Edge case: same title + same duration, add counter
-                    processedVideo.downloadFilename = `${sanitizedBase} (${durationStr})-${usageCount}.mp4`;
-                } else {
-                    processedVideo.downloadFilename = `${sanitizedBase} (${durationStr}).mp4`;
-                }
-                
-                console.log(`[Duplicate Titles] Video ${index}: "${originalTitle}" → "${processedVideo.displayTitle}"`);
-            } else {
-                // ⭐ BUG FIX #4: Handle duplicates with no/null duration - use counter suffix
-                if (!titleCounter[normalizedTitle]) {
-                    titleCounter[normalizedTitle] = 1;
-                } else {
-                    titleCounter[normalizedTitle]++;
-                }
-                
-                const counter = titleCounter[normalizedTitle];
-                
-                // Only append counter for 2nd+ occurrence (first one stays clean)
-                if (counter > 1) {
-                    processedVideo.displayTitle = `${originalTitle} (#${counter})`;
-                    processedVideo.downloadFilename = `${sanitizeFilename(originalTitle)}-#${counter}.mp4`;
-                    console.log(`[Duplicate Titles] Video ${index}: "${originalTitle}" → "${processedVideo.displayTitle}" (no duration, using counter)`);
-                } else {
-                    processedVideo.downloadFilename = `${sanitizeFilename(originalTitle)}.mp4`;
-                    console.log(`[Duplicate Titles] Video ${index}: "${originalTitle}" (no duration, first occurrence kept clean)`);
-                }
-            }
-        } else {
-            // Unique title - no changes needed
-            // ⭐ BUG FIX #10: Keep downloadFilename as NULL for unique titles!
-            // This allows Option 2a sync logic to distinguish:
-            //   - downloadFilename = null   → UNIQUE title → use sanitizedTitle + '.mp4'
-            //   - downloadFilename = "..."  → DUPLICATE → use downloadFilename directly
-            // processedVideo.downloadFilename remains null (set at line 673)
-        }
-        
-        return processedVideo;
-    });
-    
-    const modifiedCount = processedVideos.filter(v => v.displayTitle !== v.originalTitle).length;
-    console.log('[Duplicate Titles] ✅ Processing complete:', modifiedCount, 'video(s) modified\n');
-    
-    return processedVideos;
 }
 
 // =============================================================================
@@ -1237,11 +1319,12 @@ function fetchChannelInfo(channelId, channelUrl) {
                     
                     console.log(`[fetchChannelInfo] ✅ Parsed ${videos.length} unique videos (from ${lines.length} raw lines)`);
                     
-                    // Process duplicate titles - append duration to duplicates
-                    const processedVideos = processDuplicateTitles(videos);
+                    // ⭐ NEW: Use unified sanitization & duration-based deduplication
+                    // Replaces old processDuplicateTitles() with resolveDuplicatesWithDuration()
+                    const processedVideos = resolveDuplicatesWithDuration(videos);
                     
                     resolve({
-                        videos: processedVideos,  // Return processed videos with displayTitle/downloadFilename
+                        videos: processedVideos,  // Return processed videos with finalFilename/displayTitle
                         liveVideos: liveVideos
                     });
                     
@@ -1419,8 +1502,8 @@ app.post('/api/download', async (req, res) => {
         
         let outputFilename = safeFilename.endsWith('.mp4') ? safeFilename : `${safeFilename}.mp4`;
         
-        // ⭐ MODIFICATION 3: Apply duplicate filename handler (for edge cases)
-        outputFilename = getUniqueFilename(outputDir, outputFilename);
+        // ⭐ NEW: Use ensureUniqueOnDisk as safety net (replaces old getUniqueFilename)
+        outputFilename = ensureUniqueOnDisk(outputDir, outputFilename);
         
         const outputPath = path.join(outputDir, outputFilename);
 
@@ -1718,42 +1801,19 @@ app.get('/api/channels/:id/sync-status', (req, res) => {
         
         // Match each video with its download status
         const syncResults = videos.map((video, index) => {
-            // ⭐⭐⭐ BUG FIX #10: OPTION 2A - SMART HYBRID MATCHING ⭐⭐⭐
+            // ⭐⭐⭐ NEW UNIFIED MATCHING (using resolveDuplicatesWithDuration output) ⭐⭐⭐
             // 
-            // PROBLEM: YouTube titles contain illegal Windows chars (|?*<>:"/\) that yt-dlp sanitizes
-            // EXAMPLE: "Experiment Part-2 | Title?" → "Experiment Part-2 - Title-.mp4" on disk
+            // All videos now have 'finalFilename' from the new pipeline:
+            //   - Unique videos: "Sanitized-Title.mp4"
+            //   - Duplicate videos: "Sanitized-Title-(HHh-MMm-SSs).mp4" or "--videoId.mp4"
             //
-            // COMPLICATION: Duplicate titles get duration suffix appended by processDuplicateTitles()
-            // EXAMPLE: "Test Video" (duplicate) → "test-video--(00:05:30).mp4"
-            //
-            // SOLUTION (Option 2a - Smart Hybrid):
-            //   - IF video has downloadFilename (is duplicate) → use it directly (includes duration)
-            //   - ELSE (unique title) → use sanitizedTitle + ".mp4" (just sanitizes illegal chars)
+            // Simply use video.finalFilename for matching - no branching needed!
             
             const videoTitle = video.displayTitle || video.title || '';  // For display/logging
             
-            let expectedFilename;
-            let matchingStrategy;
-            
-            if (video.downloadFilename) {
-                // ─── DUPLICATE TITLE PATH ───
-                // Use pre-computed downloadFilename which includes:
-                //   1. Sanitized base name (illegal chars replaced)
-                //   2. Duration suffix --(HH:MM:SS) for uniqueness
-                //   3. Or counter suffix #2, #3 for same-title-same-duration edge case
-                
-                expectedFilename = video.downloadFilename.toLowerCase();
-                matchingStrategy = 'DUPLICATE (downloadFilename)';
-            } else {
-                // ─── UNIQUE TITLE PATH ───
-                // Use sanitizedTitle which only replaces illegal Windows characters:
-                //   | ? * < > : " / \  →  -
-                // No duration suffix needed since title is unique
-                
-                const sanitizedBase = video.sanitizedTitle || sanitizeFilename(videoTitle);
-                expectedFilename = (sanitizedBase + '.mp4').toLowerCase();
-                matchingStrategy = 'UNIQUE (sanitizedTitle)';
-            }
+            // Use pre-computed finalFilename from resolveDuplicatesWithDuration()
+            const expectedFilename = (video.finalFilename || '').toLowerCase();
+            const matchingStrategy = video.isDuplicate ? 'DUPLICATE (finalFilename)' : 'UNIQUE (finalFilename)';
             
             // Check if this exact filename:
             // 1. Exists in the actual files AND
@@ -1765,13 +1825,11 @@ app.get('/api/channels/:id/sync-status', (req, res) => {
             if (index < 5 || (fileExists && index < 20)) {
                 console.log(`[Sync] Video ${index}: "${videoTitle}"`);
                 console.log(`[Sync]   → Strategy: ${matchingStrategy}`);
-                console.log(`[Sync]   → Raw (display):    "${videoTitle}.mp4"`);
+                console.log(`[Sync]   → Raw (YouTube):    "${video.title}"`);
+                console.log(`[Sync]   → Sanitized base:  "${video.sanitizedBase}"`);
                 console.log(`[Sync]   → Expected match:   "${expectedFilename}"`);
-                if (videoTitle !== (video.sanitizedTitle || videoTitle)) {
-                    console.log(`[Sync]   ⭐ Sanitized! Illegal chars replaced: |?*<>:"/\\ → -`);
-                }
-                if (video.downloadFilename) {
-                    console.log(`[Sync]   ⚠️ Duplicate detected - using downloadFilename with duration/counter`);
+                if (video.isDuplicate) {
+                    console.log(`[Sync]   ⚠️ Duplicate - suffix: "${video.durationSuffix}"`);
                 }
                 console.log(`[Sync]   → File exists: ${fileExists ? '✅ YES' : '❌ NO'}`);
                 if (fileExists) {
@@ -2420,21 +2478,14 @@ function executeDownloadWithFormat(downloadId, videoUrl, outputPath, formatInfo,
                     console.log(`[Execute Download] Downloaded: ${path.basename(actualFile)} (${(stats.size / 1024 / 1024).toFixed(2)} MB)`);
                     
                     // Now RENAME to the desired long filename
-                    // ⭐ FIX: Sanitize final filename to match what frontend displays!
-                    // Frontend uses sanitizeFilename() which replaces <>:"/\\|?* with -
-                    // We must apply SAME sanitization here so saved filename matches UI
+                    // ⭐ NEW: Use sanitizeViaPython() for consistent sanitization with frontend
+                    // This ensures saved filename matches what UI displays (from resolveDuplicatesWithDuration)
                     const originalBaseName = path.basename(outputPath, '.mp4');
-                    const sanitizedBaseName = sanitizeFilename(originalBaseName);
+                    const sanitizedBaseName = sanitizeViaPython(originalBaseName);
                     let finalPath = path.join(outputDir, sanitizedBaseName + '.mp4');
                     
-                    // Check if file exists and add counter if needed (duplicate handling)
-                    if (fs.existsSync(finalPath)) {
-                        let counter = 1;
-                        while (fs.existsSync(finalPath)) {
-                            finalPath = path.join(outputDir, `${sanitizedBaseName} (${counter}).mp4`);
-                            counter++;
-                        }
-                    }
+                    // ⭐ NEW: Use ensureUniqueOnDisk for conflict resolution (replaces inline counter logic)
+                    finalPath = path.join(outputDir, ensureUniqueOnDisk(outputDir, sanitizedBaseName + '.mp4'));
                     
                     // Perform the rename to SANITIZED filename
                     fs.renameSync(actualFile, finalPath);
@@ -2843,8 +2894,8 @@ app.post('/api/download/batch', async (req, res) => {
             const safeTitle = videoTitle.replace(/[^a-zA-Z0-9._-]/g, '_').substring(0, 100);
             let outputFilename = `${safeTitle}_${downloadId}.mp4`;
             
-            // ⭐ MODIFICATION 3: Apply duplicate filename handler for batch downloads
-            outputFilename = getUniqueFilename(outputDir, outputFilename);
+            // ⭐ NEW: Use ensureUniqueOnDisk for batch downloads (replaces old getUniqueFilename)
+            outputFilename = ensureUniqueOnDisk(outputDir, outputFilename);
             
             const outputPath = path.join(outputDir, outputFilename);
 
@@ -3137,8 +3188,8 @@ async function processSequentialQueue(outputDir, format, quality, channelId) {
             const safeTitle = video.title.replace(/[^a-zA-Z0-9._-]/g, '_').substring(0, 100);
             let outputFilename = `${safeTitle}.mp4`;
             
-            // Apply duplicate filename handler
-            outputFilename = getUniqueFilename(outputDir, outputFilename);
+            // ⭐ NEW: Use ensureUniqueOnDisk (replaces old getUniqueFilename)
+            outputFilename = ensureUniqueOnDisk(outputDir, outputFilename);
             
             const outputPath = path.join(outputDir, outputFilename);
 
