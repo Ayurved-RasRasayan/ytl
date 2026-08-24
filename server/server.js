@@ -8,6 +8,21 @@ const fs = require('fs');
 const os = require('os');
 
 // =============================================================================
+// ⭐ CRITICAL FIX: Force UTF-8 encoding on Windows
+// =============================================================================
+// On Windows, Node.js child_process uses system codepage (cp1252) by default
+// This causes Urdu/Arabic/Chinese text to become mojibake (Û-Ø-Ù-...)
+// Setting these environment variables forces UTF-8 mode for all operations
+if (process.platform === 'win32') {
+    process.env.NODE_ENV = process.env.NODE_ENV || 'production';
+    // Force UTF-8 for child processes on Windows
+    if (!process.env.PYTHONIOENCODING) {
+        process.env.PYTHONIOENCODING = 'utf-8';
+    }
+    console.log('[Init] ✅ Windows UTF-8 mode enabled (PYTHONIOENCODING=utf-8)');
+}
+
+// =============================================================================
 // AUTHENTICATION & SECURITY MODULES
 // =============================================================================
 
@@ -324,7 +339,13 @@ function executeWithRetry(strategies, currentIndex, onSuccess, onError) {
     
     const startTime = Date.now();
     
-    exec(strategy.cmd, { maxBuffer: 50 * 1024 * 1024 }, (error, stdout, stderr) => {
+    // ⭐ CRITICAL FIX: Force UTF-8 encoding for Windows compatibility
+    // Without this, Urdu/Arabic/Chinese text gets corrupted (mojibake) on Windows
+    // because exec() defaults to system codepage (cp1252) instead of UTF-8
+    exec(strategy.cmd, { 
+        maxBuffer: 50 * 1024 * 1024,
+        encoding: 'utf-8'  // ✅ Force UTF-8 for proper Unicode support
+    }, (error, stdout, stderr) => {
         const elapsed = ((Date.now() - startTime) / 1000).toFixed(2);
         
         if (error) {
@@ -815,11 +836,25 @@ function ensureUniqueOnDisk(directory, desiredFilename) {
     const ext = path.extname(desiredFilename);           // ".mp4"
     const baseName = path.basename(desiredFilename, ext); // "video" or "video-(01h-15m-30s)"
     
+    // ⭐ DEBUG: Log what files exist in directory
+    try {
+        const existingFiles = fs.readdirSync(directory).filter(f => 
+            f.startsWith(baseName.split('-')[0]) || f.includes(baseName.substring(0, 20))
+        );
+        if (existingFiles.length > 0) {
+            console.log(`[ensureUniqueOnDisk] 🔍 Found ${existingFiles.length} similar files in ${directory}:`);
+            existingFiles.forEach(f => console.log(`   📄 ${f}`));
+        }
+    } catch (e) {
+        console.log(`[ensureUniqueOnDisk] ⚠️ Cannot read directory:`, e.message);
+    }
+    
     let finalFilename = desiredFilename;
     let counter = 1;
     
     while (fs.existsSync(path.join(directory, finalFilename))) {
-        finalFilename = `${baseName}-${counter}${ext}`;
+        console.log(`[ensureUniqueOnDisk] ⚠️ CONFLICT: "${finalFilename}" already exists!`);
+        finalFilename = `${baseName} (${counter})${ext}`;  // Changed format to " (2)" style
         counter++;
         
         // Safety limit to prevent infinite loops
@@ -831,7 +866,7 @@ function ensureUniqueOnDisk(directory, desiredFilename) {
     }
     
     if (counter > 1) {
-        console.log(`[ensureUniqueOnDisk] File existed, renamed: "${desiredFilename}" → "${finalFilename}"`);
+        console.log(`[ensureUniqueOnDisk] ✅ File existed, renamed: "${desiredFilename}" → "${finalFilename}"`);
     }
     
     return finalFilename;
@@ -845,6 +880,17 @@ const app = express();
 app.use(cors());
 app.use(express.json({ limit: '50mb' }));
 app.use(express.urlencoded({ extended: true, limit: '50mb' }));
+
+// ⭐ UTF-8 FIX: Only set charset for API routes (NOT HTML pages!)
+// This ensures Urdu/Arabic/Chinese text works in API responses
+// while still allowing HTML pages to render properly in browser
+app.use('/api', (req, res, next) => {
+    // Don't override if already set (e.g., for file downloads)
+    if (!res.getHeader('Content-Type')) {
+        res.setHeader('Content-Type', 'application/json; charset=utf-8');
+    }
+    next();
+});
 
 // =============================================================================
 // SESSION MIDDLEWARE SETUP
@@ -1455,7 +1501,9 @@ app.post('/api/download', async (req, res) => {
             channelName,   // ⭐ NEW: Channel name for folder organization
             format,        // Video format preference
             quality,        // Quality preference
-            filename,       // Custom filename
+            filename,       // Custom filename (legacy)
+            finalFilename,  // ⭐ CRITICAL: From dedup system - matches UI display!
+            downloadFilename, // Legacy download filename
             title           // VIDEO TITLE (for rename feature!)
         } = req.body;
         
@@ -1499,23 +1547,53 @@ app.post('/api/download', async (req, res) => {
 
         const downloadId = uuidv4();
         
-        // ⭐ NEW: Use downloadFilename if provided (from duplicate title processing), otherwise generate from title
-        let safeFilename;
-        if (filename && filename.includes('(')) {
-            // Filename already has duration format from duplicate title handler
-            safeFilename = filename.replace(/[^a-zA-Z0-9._\-() ]/g, '_');
-        } else if (filename) {
-            safeFilename = filename.replace(/[^a-zA-Z0-9._-]/g, '_');
-        } else if (title) {
-            safeFilename = title.replace(/[^a-zA-Z0-9._-]/g, '_');
+        // ⭐⭐⭐ CRITICAL FIX: Use finalFilename from dedup system (matches UI display)!
+        // Priority: finalFilename > downloadFilename > sanitizeViaPython(title) > fallback
+        console.log(`\n[Download] 📋 FILENAME DECISION TREE for "${title?.substring(0, 40)}..."`);
+        console.log(`[Download]    Received finalFilename: ${finalFilename || 'NONE'}`);
+        console.log(`[Download]    Received downloadFilename: ${downloadFilename || 'NONE'}`);
+        
+        let outputFilename;
+        let filenameSource = 'unknown';
+        
+        if (finalFilename && finalFilename.trim()) {
+            // ✅ BEST: Use the exact filename from our dedup system
+            // This matches what's shown in the frontend UI!
+            outputFilename = finalFilename.includes('.mp4') ? finalFilename : `${finalFilename}.mp4`;
+            filenameSource = 'finalFilename (from dedup system)';
+            console.log(`[Download] ✅ Using finalFilename: ${outputFilename}`);
+        } else if (downloadFilename && downloadFilename.trim()) {
+            // Legacy: Use provided download filename
+            outputFilename = downloadFilename.includes('.mp4') ? downloadFilename : `${downloadFilename}.mp4`;
+            filenameSource = 'downloadFilename (legacy)';
+            console.log(`[Download] ✅ Using downloadFilename: ${outputFilename}`);
+        } else if (title && title.trim()) {
+            // Fallback: Sanitize title using our Python-based sanitizer (preserves Urdu/Arabic!)
+            const sanitized = sanitizeViaPython(title);
+            outputFilename = sanitized.includes('.mp4') ? sanitized : `${sanitized}.mp4`;
+            filenameSource = 'sanitizeViaPython(title) (fallback)';
+            console.log(`[Download] ✅ Sanitized title: ${outputFilename}`);
         } else {
-            safeFilename = `video_${downloadId}`;
+            // Last resort: Generic name
+            outputFilename = `video_${downloadId}.mp4`;
+            filenameSource = 'generic fallback';
+            console.log(`[Download] ⚠️ Using generic: ${outputFilename}`);
         }
         
-        let outputFilename = safeFilename.endsWith('.mp4') ? safeFilename : `${safeFilename}.mp4`;
+        console.log(`[Download] 📌 Filename source: ${filenameSource}`);
+        console.log(`[Download] 📌 Filename BEFORE ensureUniqueOnDisk: "${outputFilename}"`);
         
-        // ⭐ NEW: Use ensureUniqueOnDisk as safety net (replaces old getUniqueFilename)
+        // Safety net: Ensure uniqueness on disk (should rarely trigger if dedup works correctly)
+        const filenameBeforeUniqueness = outputFilename;
         outputFilename = ensureUniqueOnDisk(outputDir, outputFilename);
+        
+        if (outputFilename !== filenameBeforeUniqueness) {
+            console.log(`[Download] ⚠️ ensureUniqueOnDisk MODIFIED filename!`);
+            console.log(`[Download]    Before: "${filenameBeforeUniqueness}"`);
+            console.log(`[Download]    After:  "${outputFilename}"`);
+        } else {
+            console.log(`[Download] ✅ ensureUniqueOnDisk: No change needed`);
+        }
         
         const outputPath = path.join(outputDir, outputFilename);
 
@@ -1538,7 +1616,10 @@ app.post('/api/download', async (req, res) => {
             progress: 0,
             startTime: null,
             endTime: null,
-            createdAt: new Date().toISOString()
+            createdAt: new Date().toISOString(),
+            // ⭐ CRITICAL: Mark if we already have correct filename (skip rename!)
+            needsRename: !(finalFilename && finalFilename.trim()),  // Only rename if NO finalFilename
+            hasFinalFilename: !!(finalFilename && finalFilename.trim())   // Track for debugging
         });
 
         console.log('[Download] ✅ Job created, adding to DOWNLOAD QUEUE...');
@@ -2114,6 +2195,22 @@ const downloadQueue = {
             })
             .catch((err) => {
                 console.error(`[Download Queue] ❌ Job failed: ${videoTitle?.substring(0, 30)}... -`, err?.message);
+                
+                // ⭐ CLEANUP: Remove temp/partial files on failure to prevent "(2)" conflicts
+                try {
+                    const outputDir = path.dirname(outputPath);
+                    const tempFile = path.join(outputDir, `ytl_${downloadId}.mp4`);
+                    const partialFile = path.join(outputDir, `ytl_${downloadId}.mp4.part`);
+                    
+                    [tempFile, partialFile, outputPath].forEach(file => {
+                        if (fs.existsSync(file)) {
+                            fs.unlinkSync(file);
+                            console.log(`[Download Queue] 🧹 Cleaned up failed file: ${path.basename(file)}`);
+                        }
+                    });
+                } catch (cleanupErr) {
+                    console.warn(`[Download Queue] ⚠️ Cleanup failed:`, cleanupErr.message);
+                }
             })
             .finally(() => {
                 // ⭐ KEY FIX: Remove from activeJobs and process next
@@ -2162,10 +2259,27 @@ const downloadQueue = {
             console.log(`[Download Queue] ▶️ Starting next in queue: ${nextJob.videoTitle?.substring(0, 30)}...`);
             console.log(`[Download Queue] Remaining in queue: ${this.queue.length}`);
             
-            // Small delay before starting next (5 seconds as requested)
+            // ⭐ 5-SECOND DELAY BETWEEN DOWNLOADS (as requested)
+            const delaySeconds = 5;
+            console.log(`\n[Download Queue] ⏳ Waiting ${delaySeconds} seconds before starting next download...`);
+            console.log(`[Download Queue] ${'─'.repeat(50)}`);
+            
+            let countdown = delaySeconds;
+            const countdownInterval = setInterval(() => {
+                countdown--;
+                if (countdown > 0) {
+                    console.log(`[Download Queue] ⏱️  ...${countdown} seconds remaining...`);
+                } else {
+                    console.log(`[Download Queue] ✅ Delay complete! Starting: ${nextJob.videoTitle?.substring(0, 40)}...`);
+                    console.log(`[Download Queue] ${'─'.repeat(50)}\n`);
+                    clearInterval(countdownInterval);
+                }
+            }, 1000);
+            
             setTimeout(() => {
+                clearInterval(countdownInterval); // Ensure cleanup
                 this.executeJob(nextJob);
-            }, 5000);  // ⭐ 5 second delay between downloads
+            }, delaySeconds * 1000);
             
         } else if (this.queue.length === 0 && this.activeJobs.length === 0) {
             console.log('[Download Queue] 🎉 All downloads complete! Queue empty.');
@@ -2550,12 +2664,76 @@ function executeDownloadWithFormat(downloadId, videoUrl, outputPath, formatInfo,
 }
 
 /**
- * ⭐ RENAME FUNCTION - Rename downloaded file to YouTube video title
+ * ⭐ RENAME FUNCTION - Use pre-computed filename or sanitize title
+ * 
+ * CRITICAL: If downloadObj.filename was set from finalFilename (dedup system),
+ * we should NOT re-sanitize! Just verify/return the existing filename.
  */
 async function renameDownloadedFile(downloadObj, originalPath) {
     return new Promise((resolve) => {
-        console.log('\n[Rename] Starting rename process...');
+        console.log('\n[Rename] ==================================================');
+        console.log('[Rename] Starting rename process...');
         console.log('[Rename] Original path:', originalPath);
+        console.log('[Rename] Download obj filename:', downloadObj?.filename || 'N/A');
+        console.log('[Rename] Download obj needsRename:', downloadObj?.needsRename);
+        console.log('[Rename] Download obj hasFinalFilename:', downloadObj?.hasFinalFilename);
+        console.log('[Rename] Download obj title:', downloadObj?.title?.substring(0, 40) || 'N/A');
+        
+        // ⭐ OPTIMIZATION #1: If we have correct filename from dedup system, SKIP!
+        if (downloadObj && downloadObj.filename && !downloadObj.needsRename) {
+            console.log('[Rename] ✅✅✅ SKIPPING RENAME - has correct filename from dedup system!');
+            console.log('[Rename]     Will return filename as-is:', downloadObj.filename);
+            
+            // Verify file exists at expected location
+            const expectedPath = path.join(path.dirname(originalPath), downloadObj.filename);
+            if (fs.existsSync(originalPath)) {
+                // File exists at temp/original path, might need rename to final name
+                if (originalPath !== expectedPath) {
+                    try {
+                        fs.renameSync(originalPath, expectedPath);
+                        console.log('[Rename] 📝 Renamed temp → final:', downloadObj.filename);
+                        resolve({ success: true, filename: downloadObj.filename, originalFilename: path.basename(originalPath) });
+                    } catch (err) {
+                        console.error('[Rename] ❌ Rename failed:', err.message);
+                        resolve({ success: false, reason: 'rename_error', filename: downloadObj.filename, error: err.message });
+                    }
+                } else {
+                    resolve({ success: true, filename: downloadObj.filename, originalFilename: downloadObj.filename });
+                }
+            } else if (fs.existsSync(expectedPath)) {
+                // File already at final location
+                resolve({ success: true, filename: downloadObj.filename, originalFilename: downloadObj.filename });
+            } else {
+                console.log('[Rename] ⚠️ File not found at either location');
+                resolve({ success: false, reason: 'file_not_found', filename: null });
+            }
+            return;
+        }
+        
+        // ⭐ OPTIMIZATION #2: Check if file is ALREADY correctly named!
+        // This prevents double-rename conflict when executeDownloadWithFormat() 
+        // already renamed the file to the desired name
+        const currentFilename = path.basename(originalPath);
+        
+        if (downloadObj.filename && currentFilename === downloadObj.filename) {
+            console.log('[Rename] ✅✅ FILE ALREADY HAS CORRECT NAME - skipping rename!');
+            console.log('[Rename]     Current name:', currentFilename);
+            console.log('[Rename]     Matches downloadObj.filename:', downloadObj.filename);
+            
+            if (fs.existsSync(originalPath)) {
+                const stats = fs.statSync(originalPath);
+                resolve({ 
+                    success: true, 
+                    filename: currentFilename, 
+                    originalFilename: currentFilename,
+                    size: stats.size,
+                    reason: 'already_correct'
+                });
+            } else {
+                resolve({ success: false, reason: 'file_not_found', filename: null });
+            }
+            return;
+        }
         
         // Skip if no title available
         if (!downloadObj || !downloadObj.title) {
@@ -2567,23 +2745,18 @@ async function renameDownloadedFile(downloadObj, originalPath) {
         const videoTitle = downloadObj.title;
         console.log('[Rename] Target title:', videoTitle);
         
-        // Sanitize filename (remove invalid characters)
-        // ⭐ BUG FIX: Match /api/download sanitization rules (Line 1411-1415)
-        // Must handle # @ ! $ % ^ & + = ; , ~ ` and other special chars
-        // Previous regex only replaced [:"/\\|?*] which missed # causing rename failures!
-        let sanitizedTitle = videoTitle
-            .replace(/[^a-zA-Z0-9._\-() ]/g, '_')  // Replace ALL non-safe chars with underscore
-            .replace(/\s+/g, '_')                     // Replace spaces with underscore (match download format)
-            .trim();
+        // ⭐ FIXED: Use sanitizeViaPython - preserves spaces exactly like sanitize.py!
+        // NO space-to-underscore conversion - keep consistent with UI display!
+        let sanitizedTitle = sanitizeViaPython(videoTitle).trim();
         
         // Limit length (Windows max path is 260 chars, leave room for path)
-        const maxTitleLength = 180;
+        const maxTitleLength = 230;  // ⭐ Updated to match our 230 char limit
         if (sanitizedTitle.length > maxTitleLength) {
             sanitizedTitle = sanitizedTitle.substring(0, maxTitleLength);
             console.log('[Rename] Title truncated to', maxTitleLength, 'chars');
         }
         
-        const newFilename = sanitizedTitle + '.mp4';
+        const newFilename = sanitizedTitle.endsWith('.mp4') ? sanitizedTitle : `${sanitizedTitle}.mp4`;
         // ⭐ FIXED: Keep file in the SAME directory as original (channel folder), not base DOWNLOADS_DIR
         const originalDir = path.dirname(originalPath);
         const newPath = path.join(originalDir, newFilename);
@@ -2617,6 +2790,9 @@ async function renameDownloadedFile(downloadObj, originalPath) {
         }
         
         // Handle duplicate filenames - using the same logic as getUniqueFilename
+        console.log('[Rename] ⚠️ ENTERING COUNTER-BASED DUPLICATE HANDLER');
+        console.log('[Rename]     Target filename:', newFilename);
+        
         let finalNewPath = newPath;
         let finalNewFilename = newFilename;
         let counter = 1;
@@ -2626,7 +2802,15 @@ async function renameDownloadedFile(downloadObj, originalPath) {
             finalNewFilename = `${sanitizedTitle} (${counter}).mp4`;
             // ⭐ FIXED: Keep in same directory (channel folder)
             finalNewPath = path.join(originalDir, finalNewFilename);
-            console.log('[Rename] Duplicate detected, trying:', finalNewFilename);
+            console.log('[Rename] ⚠️⚠️⚠️ DUPLICATE DETECTED! Trying:', finalNewFilename);
+        }
+        
+        if (counter > 1) {
+            console.log(`[Rename] 🔴🔴🔴 ADDED (${counter-1}) SUFFIX DUE TO DISK CONFLICT!`);
+            console.log(`[Rename]     Original: ${newFilename}`);
+            console.log(`[Rename]     Final:    ${finalNewFilename}`);
+        } else {
+            console.log('[Rename] ✅ No disk conflict, keeping original name');
         }
         
         try {
